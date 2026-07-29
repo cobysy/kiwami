@@ -75,6 +75,13 @@ export function createBrowserDriver(database, options = {}) {
  * change (e.g. a new table) ships a fresh `dictionary.db.zip` that browsers
  * with an already-populated store silently never re-fetch, since `exists`
  * is already true.
+ *
+ * jeep-sqlite's `deleteDatabase` looks up its internal `RW_<database>`
+ * connection record to find the file handle to delete, rather than opening
+ * one itself — calling it without a non-readonly connection registered
+ * fails with "DeleteDatabase: No available connection for <database>"
+ * (this app only ever opens the dictionary readonly, so that record never
+ * exists otherwise). Create one just for the delete, then release it.
  * @param {string} database
  * @param {string} url
  * @param {{ force?: boolean }} [options]
@@ -84,7 +91,12 @@ export async function ensureDatabaseFromUrl(database, url, options = {}) {
   await ensureWebStore(sqlite);
   const { result: exists } = await sqlite.isDatabase(database);
   if (exists && options.force) {
-    await CapacitorSQLite.deleteDatabase({ database, readonly: false });
+    const { result: hasRwConnection } = await sqlite.isConnection(database, false);
+    const conn = hasRwConnection
+      ? await sqlite.retrieveConnection(database, false)
+      : await sqlite.createConnection(database, false, 'no-encryption', 1, false);
+    await conn.delete();
+    if (!hasRwConnection) await sqlite.closeConnection(database, false);
   }
   if (!exists || options.force) {
     await sqlite.getFromHTTPRequest(url, false);

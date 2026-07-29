@@ -164,11 +164,13 @@ async function loadRealDictionary(force = false) {
   errorMessage.value = '';
   try {
     await driver?.close();
+    driver = null;
     await ensureDatabaseFromUrl('dictionary', `${import.meta.env.BASE_URL}dictionary.db.zip`, { force });
     driver = createBrowserDriver('dictionary', { readonly: true });
     await driver.open();
     status.value = 'ready';
   } catch (err) {
+    driver = null;
     errorMessage.value = `${err} (run "npm run build:db -- db" first if this is a missing-file error)`;
     status.value = 'error';
   }
