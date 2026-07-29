@@ -33,8 +33,13 @@ const url = server.resolvedUrls.local[0];
 const browser = await chromium.launch();
 try {
   // iPhone-width viewport to match the app's mobile-first design (see
-  // "Redesign App.vue with a dark, mobile-friendly UI").
-  const page = await browser.newPage({ viewport: { width: 430, height: 1400 } });
+  // "Redesign App.vue with a dark, mobile-friendly UI"). deviceScaleFactor 2
+  // captures at retina resolution so the PNG isn't soft when viewed in the
+  // README.
+  const page = await browser.newPage({
+    viewport: { width: 430, height: 1400 },
+    deviceScaleFactor: 2,
+  });
   await page.goto(url);
   await page.waitForSelector('.status-row.ready', { timeout: 30000 });
 
