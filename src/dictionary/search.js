@@ -19,9 +19,6 @@
 import { fetchEntriesByIds } from './dictionary-entries.js';
 import { romajiToHiragana } from './romaji.js';
 
-// entry_glosses has no dedicated equality/prefix index (see schema), so its
-// exact-tier lookup is done case-insensitively via LOWER() rather than the
-// literal `=` the kanji/reading tables can use directly.
 const FIELDS = [
   { table: 'entry_kanji', alias: 'ek', column: 'text' },
   { table: 'entry_readings', alias: 'er', column: 'text' },
@@ -43,7 +40,8 @@ function dialectClause(dialect) {
   if (!dialect) return { clause: '', params: [] };
   return {
     clause: `AND EXISTS (
-      SELECT 1 FROM entry_senses dialect_senses, json_each(dialect_senses.dial) dialect_tag
+      SELECT 1 FROM entry_senses dialect_senses
+      JOIN tag_lists tl ON tl.id = dialect_senses.dial_id, json_each(tl.json) dialect_tag
       WHERE dialect_senses.entry_id = e.id AND dialect_tag.value = ?
     )`,
     params: [dialect],
@@ -63,8 +61,9 @@ function facetClauses({ kanjiCount, dialect } = {}) {
 
 async function collectIds(driver, queries) {
   const ids = new Set();
-  for (const { sql, params } of queries) {
-    for (const row of await driver.all(sql, params)) ids.add(row.id);
+  const results = await Promise.all(queries.map(({ sql, params }) => driver.all(sql, params)));
+  for (const rows of results) {
+    for (const row of rows) ids.add(row.id);
   }
   return ids;
 }
@@ -88,7 +87,7 @@ async function tierEntryIds(driver, tier, texts, options) {
     return collectIds(driver, [
       fieldQuery(FIELDS[0], `${FIELDS[0].alias}.${FIELDS[0].column} = ?`, kanjiReading, facet),
       fieldQuery(FIELDS[1], `${FIELDS[1].alias}.${FIELDS[1].column} = ?`, kanjiReading, facet),
-      fieldQuery(FIELDS[2], `LOWER(${FIELDS[2].alias}.${FIELDS[2].column}) = LOWER(?)`, gloss, facet),
+      fieldQuery(FIELDS[2], `${FIELDS[2].alias}.${FIELDS[2].column} = ?`, gloss, facet),
     ]);
   }
 
@@ -184,8 +183,10 @@ export async function search(driver, queryText, options = {}) {
   // 水) can have dozens of common compounds as prefix matches, which would
   // otherwise crowd every exact hit but that one word out of the results
   // entirely once both compete for the same capped list.
-  const exactIds = await tierEntryIds(driver, 'exact', texts, options);
-  const prefixIds = await tierEntryIds(driver, 'prefix', texts, options);
+  const [exactIds, prefixIds] = await Promise.all([
+    tierEntryIds(driver, 'exact', texts, options),
+    tierEntryIds(driver, 'prefix', texts, options),
+  ]);
   if (exactIds.size > 0 || prefixIds.size > 0) {
     const limit = options.limit ?? 100;
     const exactResults = await fetchEntriesByIds(driver, exactIds, { ...options, limit });

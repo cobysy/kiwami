@@ -26,7 +26,7 @@ import { ensureDictionaryDb } from './unzip-db.mjs';
 
 const KNOWN_TABLES = [
   'entries', 'entry_kanji', 'entry_readings', 'entry_senses', 'entry_glosses',
-  'kanji', 'kanji_compounds', 'sentences', 'entry_sentences', 'meta',
+  'tag_lists', 'kanji', 'kanji_compounds', 'sentences', 'entry_sentences', 'meta',
 ];
 
 let failures = 0;
@@ -129,11 +129,12 @@ console.log('(realistic usage patterns against this schema — SQL + actual resu
 
 // Shared subquery fragment: pulls the archaic/rare/obsolete/obscure tags
 // actually present on an entry's senses (via json_each unnesting the JSON
-// array stored in entry_senses.misc), so example results show the specific
-// label PLAN.md's Phase 1 UI would render ("archaic", "rare", etc.), not
-// just the coarse is_archaic boolean.
+// array interned in tag_lists and referenced by entry_senses.misc_id), so
+// example results show the specific label PLAN.md's Phase 1 UI would render
+// ("archaic", "rare", etc.), not just the coarse is_archaic boolean.
 const LABELS_SUBQUERY = `(
-  SELECT GROUP_CONCAT(DISTINCT m.value) FROM entry_senses s, json_each(s.misc) m
+  SELECT GROUP_CONCAT(DISTINCT m.value) FROM entry_senses s
+  JOIN tag_lists tl ON tl.id = s.misc_id, json_each(tl.json) m
   WHERE s.entry_id = e.id AND m.value IN ('arch', 'obs', 'rare', 'obsc')
 ) AS labels`;
 

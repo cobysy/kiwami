@@ -66,6 +66,26 @@ function makeTransaction(db, fn) {
   };
 }
 
+// Caches JSON-array tag lists by their serialized text so each distinct
+// value is inserted into tag_lists exactly once; repeat callers get the
+// cached id back from the Map with no extra SQL round trip. `value` of
+// `null`/`undefined` is passed through as `null` (a real "no restriction"
+// state, distinct from an interned empty array) rather than interned.
+function makeInterner(db) {
+  const cache = new Map();
+  const insert = db.prepare('INSERT INTO tag_lists (json) VALUES (?)');
+  return (value) => {
+    if (value == null) return null;
+    const json = JSON.stringify(value);
+    let id = cache.get(json);
+    if (id === undefined) {
+      id = Number(insert.run(json).lastInsertRowid);
+      cache.set(json, id);
+    }
+    return id;
+  };
+}
+
 function readNdjson(file) {
   return createInterface({
     input: createReadStream(path.join(BUILD_DIR, file), { encoding: 'utf8' }),
@@ -81,12 +101,28 @@ CREATE TABLE entries (
   is_archaic INTEGER NOT NULL
 );
 
+-- Interned JSON-array tag lists (ke_inf/ke_pri/re_inf/re_pri/pos/field/misc/
+-- dial/antonym/stagk/stagr all take this shape), and the vast majority of
+-- rows across entry_kanji/entry_readings/entry_senses share one of a few
+-- hundred distinct values, e.g. "[]" or ["news1","ichi1"] - storing one copy
+-- here and referencing it by id instead of repeating the JSON text on every
+-- row cuts a large fraction of those tables' size. re_restr/xref are NOT
+-- interned here despite the same JSON-array shape: measured against the
+-- built db, re_restr is ~96% unique values (4570/4782 non-null rows) and
+-- xref ~12% unique (29203/252681 rows) - each is closer to free text
+-- referencing specific other headwords than a small reusable tag set, so
+-- interning them would add a join+id column for essentially no dedup.
+CREATE TABLE tag_lists (
+  id INTEGER PRIMARY KEY,
+  json TEXT UNIQUE NOT NULL
+);
+
 CREATE TABLE entry_kanji (
   entry_id INTEGER NOT NULL REFERENCES entries(id),
   ord INTEGER NOT NULL,
   text TEXT NOT NULL,
-  info TEXT NOT NULL,
-  priority TEXT NOT NULL
+  info_id INTEGER NOT NULL REFERENCES tag_lists(id),
+  priority_id INTEGER NOT NULL REFERENCES tag_lists(id)
 );
 CREATE INDEX idx_entry_kanji_text ON entry_kanji(text);
 CREATE INDEX idx_entry_kanji_entry ON entry_kanji(entry_id);
@@ -97,8 +133,8 @@ CREATE TABLE entry_readings (
   text TEXT NOT NULL,
   no_kanji INTEGER NOT NULL,
   restrict_to TEXT,
-  info TEXT NOT NULL,
-  priority TEXT NOT NULL
+  info_id INTEGER NOT NULL REFERENCES tag_lists(id),
+  priority_id INTEGER NOT NULL REFERENCES tag_lists(id)
 );
 CREATE INDEX idx_entry_readings_text ON entry_readings(text);
 CREATE INDEX idx_entry_readings_entry ON entry_readings(entry_id);
@@ -107,24 +143,30 @@ CREATE TABLE entry_senses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   entry_id INTEGER NOT NULL REFERENCES entries(id),
   ord INTEGER NOT NULL,
-  pos TEXT NOT NULL,
-  field TEXT NOT NULL,
-  misc TEXT NOT NULL,
-  dial TEXT NOT NULL,
+  pos_id INTEGER NOT NULL REFERENCES tag_lists(id),
+  field_id INTEGER NOT NULL REFERENCES tag_lists(id),
+  misc_id INTEGER NOT NULL REFERENCES tag_lists(id),
+  dial_id INTEGER NOT NULL REFERENCES tag_lists(id),
   xref TEXT NOT NULL,
-  antonym TEXT NOT NULL,
+  antonym_id INTEGER NOT NULL REFERENCES tag_lists(id),
   info TEXT,
-  restrict_to_kanji TEXT,
-  restrict_to_reading TEXT
+  restrict_to_kanji_id INTEGER REFERENCES tag_lists(id),
+  restrict_to_reading_id INTEGER REFERENCES tag_lists(id)
 );
 CREATE INDEX idx_entry_senses_entry ON entry_senses(entry_id);
 
+-- COLLATE NOCASE lets a plain \`text = ?\` / \`text LIKE 'foo%'\` use
+-- idx_entry_glosses_text case-insensitively, matching how entry_kanji/
+-- entry_readings' plain-BINARY indexes are already used - without it, the
+-- old \`LOWER(text) = LOWER(?)\` exact-match query couldn't use any index and
+-- fell back to a full scan of this table on every search.
 CREATE TABLE entry_glosses (
   sense_id INTEGER NOT NULL REFERENCES entry_senses(id),
   entry_id INTEGER NOT NULL REFERENCES entries(id),
   ord INTEGER NOT NULL,
-  text TEXT NOT NULL
+  text TEXT NOT NULL COLLATE NOCASE
 );
+CREATE INDEX idx_entry_glosses_text ON entry_glosses(text);
 CREATE INDEX idx_entry_glosses_sense ON entry_glosses(sense_id);
 CREATE INDEX idx_entry_glosses_entry ON entry_glosses(entry_id);
 
@@ -205,28 +247,29 @@ async function main() {
 
   console.log('Loading entries (+ kanji forms, readings, senses, glosses)...');
   {
+    const intern = makeInterner(db);
     const insertEntry = db.prepare('INSERT INTO entries (id, kanji_count, commonness_score, is_archaic) VALUES (?, ?, ?, ?)');
-    const insertKanji = db.prepare('INSERT INTO entry_kanji (entry_id, ord, text, info, priority) VALUES (?, ?, ?, ?, ?)');
-    const insertReading = db.prepare('INSERT INTO entry_readings (entry_id, ord, text, no_kanji, restrict_to, info, priority) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertKanji = db.prepare('INSERT INTO entry_kanji (entry_id, ord, text, info_id, priority_id) VALUES (?, ?, ?, ?, ?)');
+    const insertReading = db.prepare('INSERT INTO entry_readings (entry_id, ord, text, no_kanji, restrict_to, info_id, priority_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const insertSense = db.prepare(`INSERT INTO entry_senses
-      (entry_id, ord, pos, field, misc, dial, xref, antonym, info, restrict_to_kanji, restrict_to_reading)
+      (entry_id, ord, pos_id, field_id, misc_id, dial_id, xref, antonym_id, info, restrict_to_kanji_id, restrict_to_reading_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const insertGloss = db.prepare('INSERT INTO entry_glosses (sense_id, entry_id, ord, text) VALUES (?, ?, ?, ?)');
 
     const insertEntryTx = makeTransaction(db, (e) => {
       insertEntry.run(e.id, e.kanjiCount, e.commonnessScore, e.isArchaic ? 1 : 0);
-      e.kanji.forEach((k, i) => insertKanji.run(e.id, i, k.text, JSON.stringify(k.info), JSON.stringify(k.priority)));
+      e.kanji.forEach((k, i) => insertKanji.run(e.id, i, k.text, intern(k.info), intern(k.priority)));
       e.readings.forEach((r, i) => insertReading.run(
         e.id, i, r.text, r.noKanji ? 1 : 0,
         r.restrictTo ? JSON.stringify(r.restrictTo) : null,
-        JSON.stringify(r.info), JSON.stringify(r.priority),
+        intern(r.info), intern(r.priority),
       ));
       e.senses.forEach((s, i) => {
         const senseId = insertSense.run(
-          e.id, i, JSON.stringify(s.pos), JSON.stringify(s.field), JSON.stringify(s.misc), JSON.stringify(s.dial),
-          JSON.stringify(s.xref), JSON.stringify(s.antonym), s.info,
-          s.restrictToKanji ? JSON.stringify(s.restrictToKanji) : null,
-          s.restrictToReading ? JSON.stringify(s.restrictToReading) : null,
+          e.id, i, intern(s.pos), intern(s.field), intern(s.misc), intern(s.dial),
+          JSON.stringify(s.xref), intern(s.antonym), s.info,
+          intern(s.restrictToKanji),
+          intern(s.restrictToReading),
         ).lastInsertRowid;
         s.glosses.forEach((g, gi) => insertGloss.run(senseId, e.id, gi, g));
       });

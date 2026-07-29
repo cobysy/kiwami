@@ -113,7 +113,8 @@ async function findEntriesForCandidate(driver, candidate, posTags) {
      LEFT JOIN entry_readings er ON er.entry_id = e.id
      WHERE (ek.text = ? OR er.text = ?)
        AND EXISTS (
-         SELECT 1 FROM entry_senses s, json_each(s.pos) p
+         SELECT 1 FROM entry_senses s
+         JOIN tag_lists tl ON tl.id = s.pos_id, json_each(tl.json) p
          WHERE s.entry_id = e.id AND p.value IN (${posPlaceholders})
        )`,
     [candidate, candidate, ...posTags],
@@ -132,7 +133,8 @@ async function findEntriesForCandidateLoose(driver, candidate) {
      LEFT JOIN entry_readings er ON er.entry_id = e.id
      WHERE (ek.text = ? OR er.text = ?)
        AND EXISTS (
-         SELECT 1 FROM entry_senses s, json_each(s.pos) p
+         SELECT 1 FROM entry_senses s
+         JOIN tag_lists tl ON tl.id = s.pos_id, json_each(tl.json) p
          WHERE s.entry_id = e.id AND (p.value LIKE 'v%' OR p.value LIKE 'adj%')
        )`,
     [candidate, candidate],
