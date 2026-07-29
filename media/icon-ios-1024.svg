@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14161e" />
+      <stop offset="100%" stop-color="#0b0d12" />
+    </linearGradient>
+    <linearGradient id="glyph" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9aa6ff" />
+      <stop offset="100%" stop-color="#7c8cff" />
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed flat square, no corner rounding, no shadow: iOS applies the
+       squircle mask itself from the asset catalog. (macOS does NOT do this —
+       see icon-macos-1024.svg, which draws its own shape/shadow.) -->
+  <rect width="1024" height="1024" fill="url(#bg)" />
+  <text
+    x="50%"
+    y="53%"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-family="'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Noto Sans JP', sans-serif"
+    font-size="660"
+    fill="url(#glyph)"
+  >極</text>
+</svg>
