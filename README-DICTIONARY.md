@@ -37,6 +37,12 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
 
 - `npm run dev` — starts the Vite dev server (the dev harness at `src/App.vue`).
 - `npm run build` — production build (`vite build`).
+- `npm run build:pages` — production build into `docs/` (GitHub Pages serves straight from that
+  dir on this repo's default branch), with `base: '/kiwami/'` and a `.nojekyll` marker so Pages
+  doesn't try to run Jekyll over it.
+- `npm run bcp -- "commit message"` — rebuilds `docs/` via `build:pages`, stages that rebuild
+  alongside any already-tracked source changes, commits, and pushes, in one step
+  (`scripts/bcp.sh`). Skips the commit if nothing ended up staged.
 - `npm run test` — runs both suites below in sequence.
 - `npm run test:node` — dictionary test suite against the Node/node:sqlite driver.
 - `npm run test:browser` — the same suite against the browser/jeep-sqlite driver, in a real

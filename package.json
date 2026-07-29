@@ -18,7 +18,8 @@
     "test": "npm run test:node && npm run test:browser",
     "test:node": "vitest run --config vitest.node.config.js",
     "test:browser": "vitest run --config vitest.browser.config.js",
-    "screenshot": "node scripts/screenshot.mjs"
+    "screenshot": "node scripts/screenshot.mjs",
+    "bcp": "bash scripts/bcp.sh"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.0",
