@@ -15,7 +15,7 @@ Kiwami is real and running today, under active development, a working dictionary
 - Furigana you can toggle off
 - Favourites/history that sync across your own devices — no account, no server
 
-![Searching "した" in Kiwami's dev harness: it deconjugates to 擦る/為る/刷る/剃る and lists dictionary matches with tags and glosses](media/screenshot.png)
+![Searching "たける" in Kiwami's dev harness: it deconjugates to the potential form of 炊く/焚く, lists dictionary matches with tags/conjugation/examples, and surfaces the archaic headword 梟帥・建 ("leader of a powerful tribe")](media/screenshot.png)
 
 Regenerate this screenshot with `npm run screenshot` (see [scripts/screenshot.mjs](scripts/screenshot.mjs); requires `public/dictionary.db` — run `npm run build:db` first if missing).
 

@@ -2,10 +2,12 @@
 //
 // Launches a Vite dev server against the real public/dictionary.db.zip, drives
 // the app in headless Chromium (Playwright, already a devDependency for
-// tests/browser), and searches "した" — simultaneously a real headword (下,
-// "below") and the past tense of する ("to do") — to demonstrate
-// deconjugation and the result list's tags/reading/gloss rendering in the
-// same screenshot. Also expands the 親しむ result (a v5m verb) and opens its
+// tests/browser), and searches "たける" — simultaneously the potential form
+// of 炊く/焚く ("to cook"/"to light a fire") and the reading of an archaic
+// headword (梟帥・建, an ancient title for "leader of a powerful tribe" —
+// as in the legendary hero name Yamato Takeru) — to demonstrate both
+// deconjugation and the archaic/obsolete/rare block in the same screenshot.
+// Also expands the 長ける result (a v1 verb, "to excel at") and opens its
 // Conjugate panel, so the kanji breakdown (stroke count + on'yomi/kun'yomi),
 // the conjugation panel, and the Tatoeba example-sentence panel (with
 // furigana) are all visible in one shot. Saves the capture to
@@ -47,16 +49,22 @@ try {
   await page.goto(url);
   await page.waitForSelector('.status-row.ready', { timeout: 30000 });
 
-  await page.fill('.search-box input', 'した');
+  await page.fill('.search-box input', 'たける');
   await page.click('.search-btn');
   await page.waitForSelector('.deconj-card');
   await page.waitForSelector('.result-card');
 
-  // 親しむ (v5m, "to be intimate with") - a verb result, so its Conjugate
-  // button is present alongside the kanji breakdown and examples.
+  // Reveal the archaic/obsolete/rare block (梟帥・建) below the main results,
+  // alongside the deconjugation card above them.
+  await page.click('.switch-row input[type="checkbox"]');
+  await page.waitForSelector('.archaic-block');
+
+  // 長ける (v1, "to excel at") - a verb result with a Tatoeba example
+  // sentence, so its Conjugate button is present alongside the kanji
+  // breakdown and examples.
   const headwords = await page.locator('.result-headword').allInnerTexts();
-  const index = headwords.findIndex((h) => h.trim() === '親しむ');
-  if (index === -1) throw new Error('Expected 親しむ among the した results - result set or ranking changed.');
+  const index = headwords.findIndex((h) => h.trim() === '長ける、闌ける');
+  if (index === -1) throw new Error('Expected 長ける among the たける results - result set or ranking changed.');
   await page.locator('.result-card').nth(index).locator('.result-row').click();
   await page.waitForSelector('.detail-panel');
   await page.waitForSelector('.kanji-list, .detail-status');
@@ -64,8 +72,14 @@ try {
   await page.waitForSelector('.conjugation-list');
   await page.waitForSelector('.sentence-list, .sentence-status');
 
+  // The viewport is taller than the content needs (the app's min-height:100vh
+  // leaves a trailing blank area below the archaic block, the last section on
+  // the page), so clip the capture to the actual content height instead of
+  // screenshotting the full viewport.
+  const contentBottom = await page.locator('.archaic-block').boundingBox().then((box) => box.y + box.height);
+
   mkdirSync(OUT_DIR, { recursive: true });
-  await page.screenshot({ path: OUT_PATH });
+  await page.screenshot({ path: OUT_PATH, clip: { x: 0, y: 0, width: 430, height: contentBottom + 24 } });
   console.log(`Saved screenshot -> ${path.relative(process.cwd(), OUT_PATH)}`);
 } finally {
   await browser.close();
