@@ -20,7 +20,7 @@
 // against JMdict the same way but with a looser verb/adjective POS check
 // (kuromoji doesn't tell us which JMdict verb-class tag applies) and a
 // generic 'conjugated' relation instead of a specific one.
-import { toHiragana } from './kana.js';
+import { romajiToHiragana } from './romaji.js';
 import { fetchEntriesByIds } from './dictionary-entries.js';
 import { getTokenizer } from './tokenizer.js';
 
@@ -162,7 +162,13 @@ async function kuromojiCandidates(query) {
  * @returns {Promise<Array<object & { relation: string, surface: string }>>}
  */
 export async function deconjugate(driver, queryText) {
-  const query = toHiragana((queryText ?? '').trim());
+  const trimmed = (queryText ?? '').trim();
+  // Same romaji handling as search() - a query typed in romaji (e.g.
+  // "kirawareru") needs converting to kana (きらわれる) before the suffix
+  // rules below can recognize it; romajiToHiragana falls back to null for
+  // anything that isn't fully romaji (kanji, already-kana, mixed text), so
+  // this just keeps the raw trimmed text for those.
+  const query = romajiToHiragana(trimmed) ?? trimmed;
   if (!query) return [];
 
   const matches = [];
