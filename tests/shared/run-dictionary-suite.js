@@ -232,6 +232,13 @@ export function runDictionarySuite(label, createDriver) {
         expect(grandmother.fuzzy).toBe(true);
         expect(grandmother.distance).toBeLessThan(1);
       });
+
+      it('converts a romaji query to kana before computing distance', async () => {
+        const results = await fuzzySearch(driver, 'jibun');
+        const jibun = results.find((r) => r.id === 1318610); // 自分/じぶん
+        expect(jibun).toBeDefined();
+        expect(jibun.distance).toBe(0);
+      });
     });
 
     describe('deconjugate()', () => {
