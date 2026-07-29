@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Kiwami (極) — offline-first Japanese dictionary PWA",
+  "license": "MIT",
   "scripts": {
     "build:db": "bash scripts/build-db.sh",
     "verify:db": "node scripts/verify-db.mjs",
