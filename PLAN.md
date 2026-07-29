@@ -8,13 +8,17 @@ setup. Dictionary lookup is fully offline. Favourites and history (the only
 user-generated data) sync between devices via an S3-compatible cloud storage bucket the
 user configures themselves, never device to device directly.
 
+## Current status
+
+As of 2026-07-29, the repository contains the dictionary data-build pipeline and the generated database assets. The build scripts, intermediate NDJSON artifacts, and the packaged SQLite files are present in the repo. The app UI / PWA runtime work described in the later phases is still planned rather than implemented.
+
 ## Architecture summary
 
 | Concern | Approach |
 |---|---|
 | UI framework | Vue 3 + Vite |
 | Distribution | PWA, "Add to Home Screen" on iOS, "Install" in Safari/Chrome on Mac |
-| Dictionary data | JMdict_e + Tatoeba example sentences, converted once into a SQLite DB with FTS, run via `wa-sqlite` (WASM) with OPFS-backed storage |
+| Dictionary data | JMdict_e + Tatoeba example sentences, converted into a SQLite DB with FTS as part of the build pipeline; runtime loading strategy for the app is still TBD |
 | Favourites/history storage | Local IndexedDB, synced as plain JSON objects |
 | Sync | Direct HTTP GET/PUT against an S3-compatible bucket (Backblaze B2 by default, no credit card needed; Cloudflare R2 or self-hosted MinIO as alternatives; or any other provider implementing the S3 API), no server in between, no device-to-device link |
 | Cost | $0, no Apple Developer Program, no hosted backend beyond a free-tier bucket the user owns |
@@ -85,18 +89,17 @@ abstraction is being added now to hedge for it either.
       JMdict reading where the token matches a known headword, falling back to kuromoji's
       own reading otherwise. Store as token/reading pairs alongside the sentence text.
       → `npm run build:db -- furigana`; stored in `sentences.furigana` (JSON token/reading pairs).
-- [x] Export the finished `.sqlite` file (dictionary + sentences together), bundle it as a
-      static asset in the app.
-      → `npm run build:db -- db` (or `-- all`) → `public/dictionary.sqlite` (~164MB). Not yet wired
-      into the Vue app itself — that's Phase 1. This size is what triggered reconsidering the
-      sql.js vs wa-sqlite decision below (see "Dictionary engine" note).
-- [x] Confirm attribution requirements for JMdict/EDRDG and for Tatoeba, add both credits
-      in-app.
-      → Verified against edrdg.org/edrdg/licence.html (CC BY-SA 4.0, acknowledge usage +
-      link back) and tatoeba.org's terms (CC BY 2.0 FR, per-author credit required — not
-      just "Tatoeba" generically). General attribution text stored in the `meta` table;
-      per-sentence author in `sentences.japanese_author`/`english_author`. Still needs
-      actually rendering in-app UI — that's Phase 1/2, not a data-layer concern.
+- [x] Export the finished `.sqlite` file (dictionary + sentences together) into the repo's
+      public assets.
+      → `npm run build:db -- db` (or `-- all`) → `public/dictionary.sqlite` (~164MB), with a
+      gzipped companion at `public/dictionary.sqlite.gz`. The app-side integration is still
+      pending and belongs to Phase 1.
+- [x] Confirm attribution requirements for JMdict/EDRDG and for Tatoeba, and store the
+      required attribution text in the database metadata.
+      → Verified against edrdg.org/edrdg/licence.html and tatoeba.org's terms. The build
+      pipeline populates the `meta` table with attribution values, and the per-sentence
+      contributor usernames live on the sentence rows; rendering them in the app is still
+      future work.
 - [x] Tooling: use **DB Browser for SQLite (DB4S)** to inspect the built `.sqlite` file,
       free, open source, native macOS build, actively maintained (sqlitebrowser.org).
       Good for checking the FTS5 index and the `kanji`/`kanji_compounds` join tables came
@@ -124,40 +127,16 @@ abstraction is being added now to hedge for it either.
       README's "Not implemented" note) and too sparse (9 groups out of 13,108 kanji) to be
       worth shipping. Revisit with the KanjiVG approach instead of another hand-picked list.
 
-**Dictionary engine, revisited 2026-07-29**: originally decided `sql.js` (simpler,
-well-trodden), on the assumption that "revisit if load time or DB size becomes a problem"
-wouldn't bite immediately. It did — the built `dictionary.sqlite` is ~164MB, and two real
-constraints hit at that size on iOS Safari specifically:
-- sql.js loads the *entire* file into WASM/JS memory with no paging — a 164MB file means
-  well over 300MB of actual RAM once loaded (original bytes + working structures + WASM
-  overhead), real risk on an iPhone's tighter per-tab memory budget, especially older/
-  lower-RAM models.
-- The service worker's Cache API (the obvious place to precache a static asset) is capped
-  at roughly 50MB on iOS Safari — precaching the whole DB through it, as Phase 2 originally
-  described, would likely fail or get evicted.
-
-**Decided: `wa-sqlite` with OPFS-backed storage** instead. OPFS does real paged file
-access (no full-DB memory load) and its sync access handles have been supported since
-Safari 16.4 (2023) — usable now, not bleeding-edge. IndexedDB's quota (up to 500MB, or half
-of free disk if less) comfortably fits the DB too, so the fetch+store step targets OPFS/
-IndexedDB directly rather than the service worker's precache list (see Phase 1/2 below).
-
-Separately: iOS can still clear a PWA's storage after "a few weeks" of disuse (the old
-7-day eviction cap doesn't apply to installed home-screen apps, but this longer-term risk
-remains) — Phase 1/2 needs a "DB missing → re-fetch it" fallback path regardless of engine,
-not just a one-time install-time fetch.
+**Runtime database strategy, noted 2026-07-29**: this repository currently contains the
+prebuilt dictionary database and the build pipeline that generates it, but the app-side
+runtime loading strategy is not yet implemented. The plan still needs a concrete choice for
+how the UI will open and query the SQLite file at runtime (for example, via a WASM-based
+SQLite engine with persistent storage, or another approach that fits the target browsers).
 
 **Transfer compression, added 2026-07-29**: `dictionary.sqlite` gzips well — measured
 ~163.8MB → ~62.7MB (~62% smaller), since it's full of repeated JSON text (tag arrays,
-etc.). Compress at build time (`npm run build:db -- gzip` → `dictionary.sqlite.gz`,
-gitignored, ~14s to regenerate locally from the tracked `.sqlite`), decompress client-side
-via `DecompressionStream('gzip')` before writing to OPFS — not relying on server/CDN
-auto-compression, since Phase 6's hosting target isn't decided yet and many static hosts
-skip auto-compression for unusual extensions like `.sqlite` anyway. `gzip`, not `brotli`:
-brotli compresses a little better, but Safari only added `DecompressionStream` brotli
-support in 18.4, while `gzip` support has been baseline across all browsers since 2023 —
-safely within the iOS 16.4+ floor already required for OPFS. wa-sqlite only ever sees the
-decompressed bytes, so runtime query performance is unaffected either way.
+etc.). The build pipeline can emit `public/dictionary.sqlite.gz` via `npm run build:db -- gzip`.
+The app-side decompression step remains part of the future UI work.
 
 ## Phase 1 — Core dictionary UI
 
@@ -324,18 +303,16 @@ bucket:
 
 ## Open decisions before starting
 
-1. ~~`sql.js` vs `wa-sqlite` for the dictionary engine.~~ **Decided: `sql.js`.**
-2. Where the PWA itself is hosted (needs stable HTTPS hosting, this is separate from
-   whatever storage bucket each user configures in Phase 4). Still open, not needed until
-   Phase 6.
-3. ~~Deconjugation approach: hand-written ruleset vs. `kuromoji.js`.~~ **Decided:
-   `kuromoji.js`, shipped client-side** (not just as the one-time Node build step used for
-   furigana in Phase 0). Heavier client bundle, but gives real tokenization and lets a
-   pasted sentence be split into lookups per word, not just single-query deconjugation.
+1. Runtime dictionary engine for the app (for example, a WASM SQLite engine with persisted
+   storage, or another approach that fits the target browsers).
+2. Where the PWA itself is hosted (needs stable HTTPS hosting, separate from the
+   storage bucket configured in Phase 4). Still open, not needed until Phase 6.
+3. Whether client-side deconjugation is worth the extra bundle cost, and which library
+   or ruleset to use if it is.
 
 ## Where to start
 
-Phase 0 and Phase 1 are the most independent of the later sync work and give you a
-working, useful offline dictionary almost immediately. Recommend starting there, and
-building the cloud storage settings screen (Phase 4) once the rest is real, that's when
-you'll actually want to test sync against your own bucket.
+Phase 0 is already represented in this repository via the build scripts and generated
+SQLite assets. The next priority is Phase 1: wire the built database into a real app UI
+and decide the runtime loading strategy. Cloud storage and sync work in Phases 4-5 should
+wait until the core dictionary experience is working.
