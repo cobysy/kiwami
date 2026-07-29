@@ -9,7 +9,7 @@
 // Conjugate panel, so the kanji breakdown (stroke count + on'yomi/kun'yomi),
 // the conjugation panel, and the Tatoeba example-sentence panel (with
 // furigana) are all visible in one shot. Saves the capture to
-// docs/screenshot.png for README.md.
+// media/screenshot.png for README.md.
 //
 // Requires public/dictionary.db.zip to exist first (npm run build:db).
 
@@ -22,7 +22,7 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const DB_PATH = path.join(ROOT, 'public/dictionary.db.zip');
-const OUT_DIR = path.join(ROOT, 'docs');
+const OUT_DIR = path.join(ROOT, 'media');
 const OUT_PATH = path.join(OUT_DIR, 'screenshot.png');
 
 if (!existsSync(DB_PATH)) {
