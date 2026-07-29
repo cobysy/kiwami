@@ -30,9 +30,27 @@ const deconjugated = ref([]);
 // filtered out (PLAN.md: "the engine decides the tier and flag, the UI
 // decides how to display it") — they're already sorted to the bottom of
 // their tier, so hiding them here by default is a pure client-side filter,
-// no re-query needed to toggle.
-const visibleResults = computed(() => (showArchaic.value ? results.value : results.value.filter((r) => !r.archaic)));
-const visibleFuzzyResults = computed(() => (showArchaic.value ? fuzzyResults.value : fuzzyResults.value.filter((r) => !r.archaic)));
+// no re-query needed to toggle. But if every match for a query is archaic
+// (e.g. なむち), filtering them all out would show "no results" for a
+// query that actually has hits — fall back to showing them rather than
+// hiding a query's only matches, and still report the archaic count either
+// way (hidden count when some are hidden, shown count when they're all
+// that's there).
+function archaicView(list) {
+  const archaicCount = list.filter((r) => r.archaic).length;
+  if (showArchaic.value || archaicCount === 0) return { list, archaicCount: 0, allArchaic: false };
+  const nonArchaic = list.filter((r) => !r.archaic);
+  if (nonArchaic.length > 0) return { list: nonArchaic, archaicCount, allArchaic: false };
+  return { list, archaicCount, allArchaic: true };
+}
+const resultsView = computed(() => archaicView(results.value));
+const fuzzyResultsView = computed(() => archaicView(fuzzyResults.value));
+const visibleResults = computed(() => resultsView.value.list);
+const visibleFuzzyResults = computed(() => fuzzyResultsView.value.list);
+// archaicView zeroes its count once showArchaic is on (nothing's hidden
+// anymore), but the toggle's own label needs the count regardless of its
+// current state, so this reads straight off the raw results.
+const rawArchaicCount = computed(() => results.value.filter((r) => r.archaic).length);
 
 let driver = null;
 
@@ -61,6 +79,13 @@ function effectiveQuery() {
   if (matchMode.value === 'endsWith') return `*${q}`;
   if (matchMode.value === 'contains') return `*${q}*`;
   return q;
+}
+
+// The paste event fires before the browser has actually inserted the
+// pasted text, so v-model's query.value is still stale at this point —
+// defer to the next tick so runSearch reads the post-paste value.
+function onPaste() {
+  setTimeout(runSearch, 0);
 }
 
 async function runSearch() {
@@ -106,8 +131,12 @@ onMounted(loadRealDictionary);
         placeholder="Search kanji, reading, or English gloss..."
         style="width: 20rem;"
         @keyup.enter="runSearch"
+        @paste="onPaste"
       />
-      <button type="button" @click="runSearch">Search</button>
+      <button type="button" @click="runSearch" :disabled="status !== 'ready'">Search</button>
+      <span v-if="status !== 'ready'" style="margin-left: 0.5rem; color: #b58900;">
+        (dictionary still loading — search is disabled until status is "ready")
+      </span>
     </p>
     <p style="font-size: 0.85em; color: #555;">
       Tip: use <code>?</code> for a single character and <code>*</code> for any number of
@@ -140,6 +169,7 @@ onMounted(loadRealDictionary);
       <label>
         <input type="checkbox" v-model="showArchaic" />
         Show archaic/obsolete/rare matches
+        <span v-if="rawArchaicCount > 0">({{ rawArchaicCount }})</span>
       </label>
     </p>
 
@@ -152,8 +182,8 @@ onMounted(loadRealDictionary);
 
     <p v-if="tier">
       Tier: <strong>{{ tier }}</strong> — {{ visibleResults.length }} result(s)
-      <span v-if="!showArchaic && results.length > visibleResults.length" style="color: #888;">
-        ({{ results.length - visibleResults.length }} archaic/obsolete/rare hidden)
+      <span v-if="resultsView.archaicCount > 0" style="color: #888;">
+        ({{ resultsView.archaicCount }} archaic/obsolete/rare{{ resultsView.allArchaic ? ' — no other matches' : ' hidden' }})
       </span>
     </p>
     <ul>
@@ -171,7 +201,12 @@ onMounted(loadRealDictionary);
       <a href="#" @click.prevent="runFuzzy">Didn't find it? Try fuzzy search</a>
     </p>
     <div v-if="showFuzzy">
-      <h3>Fuzzy matches</h3>
+      <h3>
+        Fuzzy matches
+        <span v-if="fuzzyResultsView.archaicCount > 0" style="color: #888; font-weight: normal;">
+          ({{ fuzzyResultsView.archaicCount }} archaic/obsolete/rare{{ fuzzyResultsView.allArchaic ? ' — no other matches' : ' hidden' }})
+        </span>
+      </h3>
       <ul>
         <li v-for="r in visibleFuzzyResults" :key="r.id">
           <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
