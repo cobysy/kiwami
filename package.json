@@ -19,6 +19,8 @@
     "test:node": "vitest run --config vitest.node.config.js",
     "test:browser": "vitest run --config vitest.browser.config.js",
     "screenshot": "node scripts/screenshot.mjs",
+    "rasterize-svg": "node scripts/rasterize-svg.mjs",
+    "generate-squircle": "node scripts/generate-squircle.mjs",
     "bcp": "bash scripts/bcp.sh"
   },
   "dependencies": {

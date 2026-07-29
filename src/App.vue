@@ -243,7 +243,7 @@ onMounted(() => {
   <div class="app">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark">極</span>
+        <img class="brand-mark" src="/favicon.svg" alt="" />
         <div class="brand-text">
           <h1>Kiwami</h1>
           <span class="brand-sub">Japanese dictionary · v{{ appVersion }}</span>
@@ -752,33 +752,34 @@ html, body {
   display: flex;
   align-items: center;
   gap: 0.65rem;
+  --brand-title-size: 1.05rem;
+  --brand-sub-size: 0.72rem;
+  --brand-line-height: 1.15;
 }
 
 .brand-mark {
-  font-size: 1.6rem;
-  font-family: var(--font-jp);
-  line-height: 1;
-  background: linear-gradient(155deg, var(--accent-strong), var(--accent));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  flex-shrink: 0;
+  /* Matches brand-text's rendered height (title line + subtitle line) so it
+     never needs re-measuring by hand if those font-sizes change. */
+  height: calc((var(--brand-title-size) + var(--brand-sub-size)) * var(--brand-line-height));
+  width: calc((var(--brand-title-size) + var(--brand-sub-size)) * var(--brand-line-height));
 }
 
 .brand-text {
   display: flex;
   flex-direction: column;
-  line-height: 1.15;
+  line-height: var(--brand-line-height);
 }
 
 .brand-text h1 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--brand-title-size);
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 
 .brand-sub {
-  font-size: 0.72rem;
+  font-size: var(--brand-sub-size);
   color: var(--text-faint);
 }
 
