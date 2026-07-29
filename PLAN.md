@@ -10,7 +10,7 @@ never device to device directly.
 
 ## Current status
 
-As of 2026-07-29, the repository contains the dictionary data-build pipeline and the generated database assets (Phase 0), plus Phase 1's dictionary engine: the shared driver interface, the Node (node:sqlite) and browser (jeep-sqlite web fallback) drivers, and the full query layer (tiered match, wildcards, kanji-count facet, archaic tagging, fuzzy kana matching, deconjugation) — all covered by one test suite that runs identically against both drivers (`npm run test:node` / `npm run test:browser`), plus a minimal dev harness (`npm run dev`) for exercising it by hand. See [README-DICTIONARY.md](README-DICTIONARY.md) and Phase 1 below for what's done vs. still open (notably: the Electron IPC stub, and native-storage bundling/copy-on-first-run, both deferred to Phase 3). Phase 2's real UI and the native shell work in later phases is still planned rather than implemented.
+As of 2026-07-30, the repository contains the dictionary data-build pipeline and the generated database assets (Phase 0), Phase 1's dictionary engine (shared driver interface, Node/browser drivers, full query layer, all covered by one cross-driver test suite), and a substantial chunk of Phase 2's search UI, built out in `src/App.vue` well beyond its original "Phase 1 dev harness" scope: a dark, mobile-friendly single-page UI with the search box, match-mode/kanji-count/dialect filters, the archaic/rare block, the fuzzy-search link, the deconjugation banner, and click-to-expand result cards showing kanji breakdown, a conjugation panel, and furigana'd Tatoeba examples — plus current filter/expanded-entry state synced to the URL for shareable links. This is deployed and live at [cobysy.github.io/kiwami](https://cobysy.github.io/kiwami/) (`npm run build:pages` / `npm run bcp`, see [README-DICTIONARY.md](README-DICTIONARY.md)). Still missing from Phase 2: dedicated routed views (entry detail, kanji detail with compounds/similar-kanji sections, a start screen for favourites/recent) and navigation between them — today everything lives on one page with inline expand/collapse, no routing. See Phase 2 below for the full done/open breakdown. Phase 1's Electron IPC stub and native-storage bundling remain deferred to Phase 3, whose app-icon assets (squircle iOS/macOS icon designs, favicons) are already designed in `media/` but not yet wired into an actual Capacitor or Electron project — neither exists in the repo yet.
 
 See [PLAN-DICTIONARY-BUILD.md](PLAN-DICTIONARY-BUILD.md) for the dictionary data-build plan.
 
@@ -214,33 +214,62 @@ driver implementations, which are the only pieces allowed to know which platform
 
 Wires the Vue app to the query layer built in Phase 1; no engine/driver work happens here.
 
-- [ ] Search view: single search box, no mode switcher, calling Phase 1's tiered match /
-      wildcard / fuzzy / deconjugation query functions and rendering their results.
-  - [ ] Archaic/rare label: small muted label ("archaic", "rare") right in the result row for
+- [x] Search view: single search box, no mode switcher, calling Phase 1's tiered match /
+      wildcard / fuzzy / deconjugation query functions and rendering their results. Done
+      2026-07-30 in `src/App.vue` — originally scoped as just a Phase 1 dev harness, it grew
+      into this checklist item's real implementation (still one file, no routing yet — see the
+      still-open bullets below). Also picked up two filters beyond this bullet's original
+      scope: a match-mode segmented control (auto/starts-with/ends-with/contains, wrapping the
+      engine's existing wildcard support rather than adding new query logic) and a dialect
+      filter/browse mode (JMdict `dial` tags), plus filter state and the expanded entry synced
+      to the URL query string for shareable links (`replaceState`, not `pushState`).
+  - [x] Archaic/rare label: small muted label ("archaic", "rare") right in the result row for
         entries flagged by the engine, don't rely on tier position alone to communicate this,
-        it's too easy to miss while scanning.
-  - [ ] One-time hint under the search box explaining wildcard (`?`/`*`) syntax.
-  - [ ] "Didn't find it? Try fuzzy search" link below plain results, calling the engine's
+        it's too easy to miss while scanning. Done: archaic/rare matches render in their own
+        headed block below the main list (with a count pill and a toggle to show/hide it),
+        rather than an inline per-row label — still satisfies "don't rely on tier position
+        alone," and a query that's all-archaic shows that block regardless of the toggle so it
+        doesn't read as "no results."
+  - [ ] One-time hint under the search box explaining wildcard (`?`/`*`) syntax. Partially
+        done: the hint text exists and renders (`.hint` in `src/App.vue`), but it's always
+        visible rather than one-time/dismissible as originally scoped.
+  - [x] "Didn't find it? Try fuzzy search" link below plain results, calling the engine's
         fuzzy query function only on tap, with fuzzy results rendered in their own
         clearly-labeled section.
-  - [ ] Deconjugation banner above results when the engine returns a base-entry match
+  - [x] Deconjugation banner above results when the engine returns a base-entry match
         (e.g. "食べた is the past tense of 食べる →"), separate from direct matches below it.
-  - [ ] Kanji-count filter: a small collapsible filter row below the search box (closed by
+  - [x] Kanji-count filter: a small collapsible filter row below the search box (closed by
         default), with chip-style options (1 / 2 / 3 / 4+ kanji) driving the engine's
-        kanji-count facet.
-- [ ] Entry detail view: readings, kanji forms, glosses, part of speech, and linked Tatoeba
+        kanji-count facet. Done as an always-visible segmented control rather than a
+        collapsible row, alongside the match-mode and dialect filters in the same filter card.
+- [~] Entry detail view: readings, kanji forms, glosses, part of speech, and linked Tatoeba
       example sentences (Japanese + English) pulled from the join table, rendered with
       furigana via native `<ruby>`/`<rt>` tags from the precomputed token/reading data, plus
       a show/hide toggle for the furigana. Individual kanji in the headword are tappable,
-      jumping to that character's kanji detail view.
+      jumping to that character's kanji detail view. Partially done 2026-07-30: all of this
+      except the furigana toggle and kanji tap-through renders today as an inline expand panel
+      on the result card (click to open, kanji breakdown + conjugation panel + furigana'd
+      Tatoeba examples, lazy-fetched and cached per entry id) rather than a separate routed
+      view — there's no dedicated entry page or back navigation yet, furigana is always shown
+      with no hide toggle, and kanji in the headword aren't individually tappable (the kanji
+      breakdown lists all of them at once instead).
 - [ ] Kanji detail view: character, on'yomi, kun'yomi, English meaning(s), stroke count,
       a compounds section (common-first, from the `kanji_compounds` table), and a similar
-      kanji section split into two groups, "Same radical" and "Often confused with".
+      kanji section split into two groups, "Same radical" and "Often confused with". Not done
+      as its own view — `fetchKanjiDetails` (`src/dictionary/kanji-details.js`) and its render
+      in the entry expand panel only cover literal/stroke-count/on'yomi/kun'yomi today; no
+      English meanings, compounds, or similar-kanji sections exist yet at either the query or
+      UI layer.
 - [ ] Start screen: on launch, show Favourites and Recent (history) as two sections or a
       toggle, each grouped by date header ("Today", "Yesterday", then calendar dates),
       most recent group first, most recent entry within a group first. Dedupe repeat
-      lookups of the same word within a short window into one row rather than several.
-- [ ] Basic navigation: search → results → entry detail → back.
+      lookups of the same word within a short window into one row rather than several. Not
+      started — no favourites/history state exists yet (that's Phase 4); README.md's
+      "Favourites/history that sync across your own devices" line describes the product
+      vision, not current behavior.
+- [ ] Basic navigation: search → results → entry detail → back. Not started — there's no
+      router and no separate views yet; everything lives on one page with inline
+      expand/collapse in place of drilling into a detail view.
 
 ## Phase 3 — Native app shell plumbing
 
@@ -255,8 +284,14 @@ the engine split itself.
       itself is one codebase; only the native bridge layer differs per platform. Wire in the
       full `node:sqlite`-over-IPC driver from Phase 1 (replacing the Phase 1 stub main
       process with the real Electron app).
-- [ ] App icons, splash/launch assets, and app metadata for both the Capacitor and Electron
-      shells.
+- [~] App icons, splash/launch assets, and app metadata for both the Capacitor and Electron
+      shells. Icon *design* is done ahead of schedule — squircle iOS/macOS app icons
+      (`media/icon-ios-1024.{svg,png}`, `media/icon-macos-1024.{svg,png}`, generated via
+      `npm run generate-squircle`/`npm run rasterize-svg`) plus the matching web favicons
+      (`public/favicon.svg`, `favicon.ico`, `apple-touch-icon.png`) already ship in the
+      GitHub Pages build. Not done: wiring any of this into an actual Capacitor or Electron
+      project as that project's app icon/splash assets — neither project exists in the repo
+      yet, so there's nothing to wire them into until the project-setup bullets above happen.
 - [ ] Ensure the app can persist the dictionary database and local user data in both native
       environments without relying on browser-only install behavior.
 - [ ] Validate the app on iPhone (Capacitor) and Mac (Electron) through the local
@@ -391,9 +426,12 @@ container for sync:
 ## Where to start
 
 Phase 0 (dictionary data prep) and Phase 1 (dictionary engine: query layer + platform
-drivers, proven out with no UI involved) are both represented in this repository now — see
-their sections above and [README-DICTIONARY.md](README-DICTIONARY.md) for what's done vs. still open
-within Phase 1 (the Electron IPC stub and native-storage bundling are deferred to Phase 3).
-The next priority is Phase 2: wire the Vue app's real UI to the query layer built in Phase 1.
-Cloud storage and sync work in Phases 5-6 should wait until the core dictionary experience is
-working.
+drivers, proven out with no UI involved) are both done — see their sections above and
+[README-DICTIONARY.md](README-DICTIONARY.md) for what's still open within Phase 1 (the
+Electron IPC stub and native-storage bundling, deferred to Phase 3). Phase 2 is partway
+done: the single-page search UI (filters, archaic block, fuzzy link, deconjugation banner,
+expand-to-detail result cards) is live at the GitHub Pages demo, but the remaining Phase 2
+bullets — a routed entry detail view, a kanji detail view with compounds/similar-kanji, a
+favourites/recent start screen, and navigation between them — are still open and are the
+next priority. Cloud storage and sync work in Phases 5-6 should wait until the core
+dictionary experience (including favourites/history itself, Phase 4) is working.
