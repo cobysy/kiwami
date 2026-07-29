@@ -1,0 +1,17 @@
+node_modules/
+data/raw/
+data/build/
+dist/
+
+# Local code-indexing tool cache, not something this project generates —
+# its own .gitignore already says its contents aren't meant to be committed.
+.codegraph/
+
+# public/dictionary.sqlite is intentionally NOT ignored — it's the one
+# regenerable artifact we track in git, so a fresh clone doesn't need
+# network access + the fetch/build pipeline just to resume dev.
+
+# public/dictionary.sqlite.gz IS ignored, unlike the .sqlite above — it's
+# derived from the tracked .sqlite via `npm run build:db -- gzip`, a fast
+# (~14s) local step, so there's no reproducibility reason to track it too.
+public/dictionary.sqlite.gz
