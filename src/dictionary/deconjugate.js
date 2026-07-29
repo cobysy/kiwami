@@ -142,6 +142,19 @@ async function findEntriesForCandidateLoose(driver, candidate) {
   return rows.map((r) => r.id);
 }
 
+// IPADIC's conjugated_form tags rare/colloquial stem shapes (e.g. ある's
+// 未然特殊, used for contractions like あんまり) with "特殊" ("special"), and
+// dialectal contractions (読めば -> 読みゃ) with "縮約" ("contraction") —
+// distinct from the plain 未然形/連用形/... forms every regular conjugation
+// in the suffix-rule table above produces. Real words don't hit these; they
+// only show up when kuromoji is forced to segment text that isn't actually
+// Japanese (e.g. "あんとん", the kana form of a romaji name) into whatever
+// minimizes its cost matrix — e.g. あん+とん as fragments of ある/とる —
+// which otherwise surfaces as a nonsense "conjugated of 取る" match.
+function isPlainConjugatedForm(form) {
+  return !form.includes('特殊') && !form.includes('縮約');
+}
+
 // Tokenizes the query and returns each verb/adjective token's dictionary
 // (basic) form as a candidate — kuromoji's IPADIC already knows irregulars
 // (する, 来る) and the full auxiliary chain, so this needs no rule table.
@@ -151,6 +164,7 @@ async function kuromojiCandidates(query) {
   const out = [];
   for (const token of tokenizer.tokenize(query)) {
     if (token.pos !== '動詞' && token.pos !== '形容詞') continue;
+    if (!isPlainConjugatedForm(token.conjugated_form)) continue;
     if (seen.has(token.basic_form)) continue;
     seen.add(token.basic_form);
     out.push({ candidate: token.basic_form, relation: 'conjugated' });
