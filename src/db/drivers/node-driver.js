@@ -1,8 +1,9 @@
-// Node/Electron driver: better-sqlite3 opening the SQLite file directly by
-// path. Used as-is for the Node dev/test harness; the real Electron shell
-// (Phase 3) forwards these same calls over IPC from the renderer instead of
-// calling better-sqlite3 in-process, but the main-process side is this file.
-import Database from 'better-sqlite3';
+// Node/Electron driver: node:sqlite (Node's built-in DatabaseSync) opening
+// the SQLite file directly by path. Used as-is for the Node dev/test
+// harness; the real Electron shell (Phase 3) forwards these same calls over
+// IPC from the renderer instead of calling node:sqlite in-process, but the
+// main-process side is this file.
+import { DatabaseSync } from 'node:sqlite';
 
 /**
  * @param {string} filePath - path to the SQLite file, or ':memory:'
@@ -15,8 +16,9 @@ export function createNodeDriver(filePath, options = {}) {
 
   return {
     async open() {
-      db = new Database(filePath, { readonly });
-      db.pragma('foreign_keys = ON');
+      // node:sqlite enables foreign key enforcement by default (unlike
+      // better-sqlite3, which needs `PRAGMA foreign_keys = ON` explicitly).
+      db = new DatabaseSync(filePath, { readOnly: readonly });
     },
     async exec(sql) {
       db.exec(sql);

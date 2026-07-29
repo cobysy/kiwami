@@ -47,7 +47,7 @@ Run:
 
 - npm run verify:db
 
-This checks the database schema, row counts, foreign key integrity, FTS search behavior, and a few representative joins.
+This checks the database schema, row counts, foreign key integrity, substring search behavior, and a few representative joins.
 
 ## Notes
 

@@ -2,12 +2,6 @@
 // pipeline, Node-only) — duplicated here rather than imported because tests/
 // needs this to run inside a browser (via the Vite/browser test build) where
 // scripts/ (a Node CLI tool with `node:fs` imports) can't be pulled in.
-//
-// Omits `search_fts` (FTS5): the browser driver's sql.js build has no FTS5
-// module, and src/db/queries/search.js deliberately doesn't use it for
-// exactly that reason (see the comment at the top of that file) — so this
-// fixture schema doesn't need to create a table nothing in the query layer
-// queries.
 export const SCHEMA_SQL = `
 CREATE TABLE entries (
   id INTEGER PRIMARY KEY,

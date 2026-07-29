@@ -11,10 +11,6 @@ This document captures the dictionary data-build work that previously lived in t
 - [x] Write a one-off Node script to parse it into a normalized schema: entries, readings,
       senses/glosses (English only), part-of-speech tags.
       → `npm run build:db -- entries` (`scripts/build-entries.mjs`); 218,173 entries.
-- [x] Load into SQLite, build an FTS5 (or FTS4 if FTS5 unsupported in the WASM build you pick)
-      virtual table over readings + glosses for fast lookup.
-      → `npm run build:db -- db`; `search_fts` (FTS5) covers readings + glosses, verified with
-      both a kana-reading and an English-gloss MATCH query.
 - [x] Add a `kanji_count` column on the entries table (count of kanji characters in the
       headword), computed once at build time, used later as a filter facet.
 - [x] Capture JMdict's priority markers (`news1/2`, `ichi1/2`, `spec1/2`, `gai1/2`) per
@@ -43,7 +39,7 @@ This document captures the dictionary data-build work that previously lived in t
       → `npm run build:db -- furigana`; stored in `sentences.furigana` (JSON token/reading pairs).
 - [x] Export the finished `.sqlite` file (dictionary + sentences together) into the repo's
       public assets.
-      → `npm run build:db -- db` (or `-- all`) → `public/dictionary.db` (~164MB; named `.db`
+      → `npm run build:db -- db` (or `-- all`) → `public/dictionary.db` (~134MB; named `.db`
       rather than `.sqlite` so jeep-sqlite's browser HTTP-import path can fetch it directly —
       see `scripts/assemble-sqlite.mjs`). The app-side integration is still pending and belongs
       to Phase 1.
@@ -55,10 +51,10 @@ This document captures the dictionary data-build work that previously lived in t
       future work.
 - [x] Tooling: use **DB Browser for SQLite (DB4S)** to inspect the built `.sqlite` file,
       free, open source, native macOS build, actively maintained (sqlitebrowser.org).
-      Good for checking the FTS5 index and the `kanji`/`kanji_compounds` join tables came
-      out right before wiring up the app.
-      → Verified via `sqlite3` CLI instead (row counts, FK integrity, FTS5 queries, join
-      spot-checks all passed); DB4S remains available for interactive browsing if wanted.
+      Good for checking the `kanji`/`kanji_compounds` join tables came out right before
+      wiring up the app.
+      → Verified via `sqlite3` CLI instead (row counts, FK integrity, join spot-checks all
+      passed); DB4S remains available for interactive browsing if wanted.
 - [x] Pull **KANJIDIC2** (EDRDG, same license family) and parse into a `kanji` table keyed
       by character: on'yomi (katakana), kun'yomi (hiragana, with okurigana dot notation),
       English meanings, stroke count, radical number.

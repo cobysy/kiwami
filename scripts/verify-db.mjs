@@ -1,10 +1,11 @@
 // npm run verify:db
 //
 // Sanity-checks public/dictionary.db after `npm run build:db -- all` (or `-- db`):
-// foreign key integrity, row counts per table, an FTS5 search spot check
-// (kana reading + English gloss), a full entry reconstruction, the
-// kanji -> kanji_compounds join (common-first ordering), the
-// entry -> sentence -> furigana join, and the meta/attribution rows.
+// foreign key integrity, row counts per table, a substring search spot check
+// (kana reading + English gloss, mirroring src/db/queries/search.js's
+// LIKE-scan), a full entry reconstruction, the kanji -> kanji_compounds join
+// (common-first ordering), the entry -> sentence -> furigana join, and the
+// meta/attribution rows.
 //
 // Also prints the live schema (from sqlite_master) up front, so this script
 // doubles as a quick tour of what's actually in the database for anyone
@@ -22,14 +23,14 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { existsSync, statSync } from 'node:fs';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_FILE = path.join(__dirname, '../public/dictionary.db');
 
 const KNOWN_TABLES = [
   'entries', 'entry_kanji', 'entry_readings', 'entry_senses', 'entry_glosses',
-  'search_fts', 'kanji', 'kanji_compounds', 'sentences', 'entry_sentences', 'meta',
+  'kanji', 'kanji_compounds', 'sentences', 'entry_sentences', 'meta',
 ];
 
 let failures = 0;
@@ -49,7 +50,7 @@ if (!existsSync(DB_FILE)) {
 
 console.log(`${DB_FILE} (${(statSync(DB_FILE).size / 1024 / 1024).toFixed(1)}MB)\n`);
 
-const db = new Database(DB_FILE, { readonly: true });
+const db = new DatabaseSync(DB_FILE, { readOnly: true });
 
 console.log('=== Schema ===');
 for (const row of db.prepare("SELECT name, sql FROM sqlite_master WHERE type IN ('table','index') AND name NOT LIKE 'sqlite_%' ORDER BY type DESC, name").all()) {
@@ -63,15 +64,15 @@ for (const table of KNOWN_TABLES) {
 }
 
 console.log('\n=== Foreign key integrity ===');
-const fkViolations = db.pragma('foreign_key_check');
+const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
 check('no foreign key violations', fkViolations.length === 0, `${fkViolations.length} violation(s)`);
 
-console.log('\n=== FTS5 search (search_fts covers readings + glosses) ===');
-const byGloss = db.prepare("SELECT entry_id FROM search_fts WHERE search_fts MATCH 'obvious' LIMIT 10").all();
+console.log('\n=== Substring search (entry_glosses / entry_readings, LIKE-scan) ===');
+const byGloss = db.prepare("SELECT DISTINCT entry_id FROM entry_glosses WHERE text LIKE '%obvious%' LIMIT 10").all();
 check('gloss search "obvious" returns results', byGloss.length > 0);
 check('gloss search "obvious" finds 明白 (id 1000220)', byGloss.some((r) => r.entry_id === 1000220));
 
-const byReading = db.prepare("SELECT entry_id FROM search_fts WHERE search_fts MATCH 'めいはく'").all();
+const byReading = db.prepare("SELECT DISTINCT entry_id FROM entry_readings WHERE text = 'めいはく'").all();
 check('reading search "めいはく" finds exactly 明白', byReading.length === 1 && byReading[0].entry_id === 1000220);
 
 console.log('\n=== Entry reconstruction (id 1000220, 明白/めいはく) ===');
@@ -138,11 +139,12 @@ const LABELS_SUBQUERY = `(
 ) AS labels`;
 
 runExample(
-  // Note: FTS5's tokenizer splits on hyphens, so a plain token search for
-  // "cat" also matches idioms like "scaredy-cat" (an entry meaning
-  // "coward") — a correct match on the indexed text, not a bug, but it
-  // shows why Phase 1's tiered matching (PLAN.md) needs to rank an exact
-  // gloss match above a match that's just one token inside a longer idiom.
+  // Substring LIKE-scan, same approach src/db/queries/search.js uses on
+  // every driver. A plain substring match for "cat" also matches idioms
+  // like "scaredy-cat" (an entry meaning "coward") — a correct match on the
+  // indexed text, not a bug, but it shows why Phase 1's tiered matching
+  // (PLAN.md) needs to rank an exact gloss match above a match that's just
+  // a substring of a longer idiom.
   'Search by English gloss, common-first ("cat")',
   `SELECT e.id, GROUP_CONCAT(DISTINCT k.text) AS kanji, GROUP_CONCAT(DISTINCT r.text) AS readings,
           GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score, e.is_archaic, ${LABELS_SUBQUERY}
@@ -150,7 +152,7 @@ runExample(
    LEFT JOIN entry_kanji k ON k.entry_id = e.id
    JOIN entry_readings r ON r.entry_id = e.id
    JOIN entry_glosses g ON g.entry_id = e.id
-   WHERE e.id IN (SELECT entry_id FROM search_fts WHERE search_fts MATCH 'cat')
+   WHERE e.id IN (SELECT entry_id FROM entry_glosses WHERE text LIKE '%cat%')
    GROUP BY e.id ORDER BY e.commonness_score DESC LIMIT 5`,
 );
 
@@ -162,7 +164,7 @@ runExample(
    LEFT JOIN entry_kanji k ON k.entry_id = e.id
    JOIN entry_readings r ON r.entry_id = e.id
    JOIN entry_glosses g ON g.entry_id = e.id
-   WHERE e.id IN (SELECT entry_id FROM search_fts WHERE search_fts MATCH 'ねこ')
+   WHERE e.id IN (SELECT entry_id FROM entry_readings WHERE text LIKE '%ねこ%')
    GROUP BY e.id ORDER BY e.commonness_score DESC LIMIT 5`,
 );
 

@@ -43,14 +43,8 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
 
 ## Findings from building this (see PLAN.md for the full write-up)
 
-- **No FTS5 in the browser driver.** `jeep-sqlite`'s web fallback runs on `sql.js`, whose
-  standard published WASM build has no FTS5 module. better-sqlite3 and iOS's native SQLite both
-  support FTS5 fine, but the query layer targets the lowest common denominator so the same code
-  runs identically on every driver — see the top of `src/db/queries/search.js`.
 - **`sql.js` is pinned to exactly `1.11.0`, not `^1.11.0`.** `jeep-sqlite`'s bundled JS glue is
   frozen against a specific `sql.js` WASM build; a newer semver-compatible `sql.js` produces a
   WASM binary the glue can't instantiate. See `scripts/copy-sql-wasm.mjs`.
-- **The real 164MB `dictionary.db` loads fine in the browser driver** — fetch+import in
-  well under a second locally, despite `sql.js` holding the whole database in WASM memory. The
-  `search_fts` (FTS5) table it contains doesn't block opening the file or querying other tables,
-  even though the query layer never touches it there.
+- **The real 134MB `dictionary.db` loads fine in the browser driver** — fetch+import in well
+  under a second locally, despite `sql.js` holding the whole database in WASM memory.

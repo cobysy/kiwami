@@ -1,11 +1,11 @@
 // Shared SQLite driver interface. Every platform backend (Node/Electron via
-// better-sqlite3, iOS/browser-dev via the Capacitor SQLite plugin) implements
+// node:sqlite, iOS/browser-dev via the Capacitor SQLite plugin) implements
 // this exact shape; the query layer in `src/db/queries` is written only
 // against it and must not know which backend is active underneath.
 //
 // Three methods instead of PLAN.md's single `run(sql, params) -> rows`
 // example: both real backends already draw this same line internally
-// (better-sqlite3's `exec` vs `prepare().all()`/`prepare().run()`; the
+// (node:sqlite's `exec` vs `prepare().all()`/`prepare().run()`; the
 // Capacitor SQLite plugin's `execute` vs `query`/`run`), so mirroring it here
 // avoids a driver-side heuristic guessing "is this DDL or a parameterized
 // statement" from a SQL string.

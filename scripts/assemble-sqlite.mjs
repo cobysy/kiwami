@@ -14,13 +14,10 @@
 // Schema: entries/entry_kanji/entry_readings/entry_senses/entry_glosses
 // normalize JMdict; kanji holds KANJIDIC2; kanji_compounds and
 // entry_sentences are join tables; sentences carries furigana tokens inline
-// (1:1 with a sentence, no separate table needed). An FTS5 virtual table
-// (search_fts) covers readings + glosses per PLAN.md Phase 0 — kanji lookup
-// uses a plain indexed column instead, since exact/prefix kanji match doesn't
-// need FTS tokenization. `meta` holds build info and license attribution
-// text (per-sentence author credit lives on the sentence row itself, since
-// Tatoeba's CC BY 2.0 FR requires crediting the individual contributor, not
-// just "Tatoeba" generically).
+// (1:1 with a sentence, no separate table needed). `meta` holds build info
+// and license attribution text (per-sentence author credit lives on the
+// sentence row itself, since Tatoeba's CC BY 2.0 FR requires crediting the
+// individual contributor, not just "Tatoeba" generically).
 //
 // No table for "visually confusable kanji" (PLAN.md Phase 0) — that feature
 // was dropped for now rather than shipped from a hand-authored, unsourced
@@ -43,11 +40,26 @@ import { createReadStream, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUILD_DIR = path.join(__dirname, '../data/build');
 const OUT_FILE = path.join(__dirname, '../public/dictionary.db');
+
+// node:sqlite has no built-in `db.transaction()` helper (unlike
+// better-sqlite3) — wrap BEGIN/COMMIT/ROLLBACK by hand.
+function makeTransaction(db, fn) {
+  return (arg) => {
+    db.exec('BEGIN');
+    try {
+      fn(arg);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  };
+}
 
 function readNdjson(file) {
   return createInterface({
@@ -111,12 +123,6 @@ CREATE TABLE entry_glosses (
 CREATE INDEX idx_entry_glosses_sense ON entry_glosses(sense_id);
 CREATE INDEX idx_entry_glosses_entry ON entry_glosses(entry_id);
 
-CREATE VIRTUAL TABLE search_fts USING fts5(
-  entry_id UNINDEXED,
-  reading,
-  gloss
-);
-
 CREATE TABLE kanji (
   literal TEXT PRIMARY KEY,
   onyomi TEXT NOT NULL,
@@ -161,9 +167,9 @@ async function main() {
   mkdirSync(path.dirname(OUT_FILE), { recursive: true });
   if (existsSync(OUT_FILE)) rmSync(OUT_FILE);
 
-  const db = new Database(OUT_FILE);
-  db.pragma('journal_mode = OFF');
-  db.pragma('synchronous = OFF');
+  const db = new DatabaseSync(OUT_FILE);
+  db.exec('PRAGMA journal_mode = OFF');
+  db.exec('PRAGMA synchronous = OFF');
   db.exec(SCHEMA);
 
   console.log('Loading kanji...');
@@ -171,7 +177,7 @@ async function main() {
     const insert = db.prepare(`INSERT INTO kanji
       (literal, onyomi, kunyomi, meanings, stroke_count, grade, jlpt, frequency, radical_number)
       VALUES (@literal, @onyomi, @kunyomi, @meanings, @strokeCount, @grade, @jlpt, @frequency, @radicalNumber)`);
-    const insertMany = db.transaction((rows) => { for (const r of rows) insert.run(r); });
+    const insertMany = makeTransaction(db, (rows) => { for (const r of rows) insert.run(r); });
     const batch = [];
     for await (const line of readNdjson('kanji.ndjson')) {
       if (!line) continue;
@@ -192,7 +198,7 @@ async function main() {
     console.log(`  ${batch.length} kanji.`);
   }
 
-  console.log('Loading entries (+ kanji forms, readings, senses, glosses, FTS)...');
+  console.log('Loading entries (+ kanji forms, readings, senses, glosses)...');
   {
     const insertEntry = db.prepare('INSERT INTO entries (id, kanji_count, commonness_score, is_archaic) VALUES (?, ?, ?, ?)');
     const insertKanji = db.prepare('INSERT INTO entry_kanji (entry_id, ord, text, info, priority) VALUES (?, ?, ?, ?, ?)');
@@ -201,9 +207,8 @@ async function main() {
       (entry_id, ord, pos, field, misc, dial, xref, antonym, info, restrict_to_kanji, restrict_to_reading)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const insertGloss = db.prepare('INSERT INTO entry_glosses (sense_id, entry_id, ord, text) VALUES (?, ?, ?, ?)');
-    const insertFts = db.prepare('INSERT INTO search_fts (entry_id, reading, gloss) VALUES (?, ?, ?)');
 
-    const insertEntryTx = db.transaction((e) => {
+    const insertEntryTx = makeTransaction(db, (e) => {
       insertEntry.run(e.id, e.kanjiCount, e.commonnessScore, e.isArchaic ? 1 : 0);
       e.kanji.forEach((k, i) => insertKanji.run(e.id, i, k.text, JSON.stringify(k.info), JSON.stringify(k.priority)));
       e.readings.forEach((r, i) => insertReading.run(
@@ -211,7 +216,6 @@ async function main() {
         r.restrictTo ? JSON.stringify(r.restrictTo) : null,
         JSON.stringify(r.info), JSON.stringify(r.priority),
       ));
-      const allGlosses = [];
       e.senses.forEach((s, i) => {
         const senseId = insertSense.run(
           e.id, i, JSON.stringify(s.pos), JSON.stringify(s.field), JSON.stringify(s.misc), JSON.stringify(s.dial),
@@ -219,13 +223,8 @@ async function main() {
           s.restrictToKanji ? JSON.stringify(s.restrictToKanji) : null,
           s.restrictToReading ? JSON.stringify(s.restrictToReading) : null,
         ).lastInsertRowid;
-        s.glosses.forEach((g, gi) => {
-          insertGloss.run(senseId, e.id, gi, g);
-          allGlosses.push(g);
-        });
+        s.glosses.forEach((g, gi) => insertGloss.run(senseId, e.id, gi, g));
       });
-      const readingText = e.readings.map((r) => r.text).join(' ');
-      insertFts.run(e.id, readingText, allGlosses.join(' '));
     });
 
     let count = 0;
@@ -241,7 +240,7 @@ async function main() {
   console.log('Loading kanji_compounds...');
   {
     const insert = db.prepare('INSERT INTO kanji_compounds (kanji, entry_id, score) VALUES (?, ?, ?)');
-    const insertMany = db.transaction((rows) => { for (const r of rows) insert.run(r.kanji, r.entryId, r.score); });
+    const insertMany = makeTransaction(db, (rows) => { for (const r of rows) insert.run(r.kanji, r.entryId, r.score); });
     const batch = [];
     for await (const line of readNdjson('kanji_compounds.ndjson')) {
       if (!line) continue;
@@ -263,7 +262,7 @@ async function main() {
     const insert = db.prepare(`INSERT INTO sentences
       (id, japanese, japanese_author, english, english_author, furigana)
       VALUES (@id, @japanese, @japaneseAuthor, @english, @englishAuthor, @furigana)`);
-    const insertMany = db.transaction((rows) => { for (const r of rows) insert.run(r); });
+    const insertMany = makeTransaction(db, (rows) => { for (const r of rows) insert.run(r); });
     const batch = [];
     for await (const line of readNdjson('sentences.ndjson')) {
       if (!line) continue;
@@ -284,7 +283,7 @@ async function main() {
   console.log('Loading entry_sentences...');
   {
     const insert = db.prepare('INSERT INTO entry_sentences (entry_id, sentence_id) VALUES (?, ?)');
-    const insertMany = db.transaction((rows) => { for (const r of rows) insert.run(r.entryId, r.sentenceId); });
+    const insertMany = makeTransaction(db, (rows) => { for (const r of rows) insert.run(r.entryId, r.sentenceId); });
     const batch = [];
     for await (const line of readNdjson('entry_sentences.ndjson')) {
       if (!line) continue;

@@ -14,9 +14,9 @@
 // jeep-sqlite@2.8.0 bundles frozen JS glue built against that exact sql.js
 // WASM ABI. A newer patch/minor sql.js (tried 1.14.1) produces a wasm binary
 // the glue can't instantiate ("LinkError: function import requires a
-// callable"), and swapping in a differently-built FTS5-enabled sql.js binary
-// fails the same way with a different runtime abort — the glue and the wasm
-// have to come from the same build, not just a semver-compatible one.
+// callable"), and swapping in a differently-built sql.js binary fails the
+// same way with a different runtime abort — the glue and the wasm have to
+// come from the same build, not just a semver-compatible one.
 
 
 import { copyFileSync, mkdirSync, existsSync } from 'node:fs';

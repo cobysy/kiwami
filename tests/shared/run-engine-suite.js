@@ -1,5 +1,5 @@
 // The actual assertions, parameterized by a driver factory so the exact
-// same test bodies run against both the Node (better-sqlite3) and browser
+// same test bodies run against both the Node (node:sqlite) and browser
 // (jeep-sqlite) drivers — proving PLAN.md Phase 1's requirement that
 // swapping the driver behind the shared interface is the only
 // platform-specific step. tests/node/engine.test.js and

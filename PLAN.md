@@ -20,7 +20,7 @@ See [PLAN-DICTIONARY-BUILD.md](PLAN-DICTIONARY-BUILD.md) for the dictionary data
 |---|---|
 | UI framework | Vue 3 + Vite |
 | Distribution | Same `vite build` output shared by both shells: Capacitor-based native shell for iPhone; Electron-based native shell for Mac (decided 2026-07-29 — Capacitor has no official macOS platform, see Phase 3). Optional later App Store/TestFlight distribution for iOS. |
-| Dictionary data | JMdict_e + Tatoeba example sentences, converted into a SQLite DB with FTS as part of the build pipeline; runtime loading strategy for the app is still TBD |
+| Dictionary data | JMdict_e + Tatoeba example sentences, converted into a SQLite DB via the build pipeline; query layer uses a uniform `LIKE`-scan on every driver; loaded via each platform's driver (better-sqlite3 on Node/Electron, jeep-sqlite/sql.js in the browser, native SQLite on iOS) |
 | Favourites/history storage | Local IndexedDB, synced as plain JSON objects |
 | Sync | iCloud container-based sync for Apple devices, no server in between, no device-to-device link |
 | Cost | $0 for local development and testing with free tools; no paid Apple Developer account is required for direct device builds and installs, no hosted backend required |
@@ -88,31 +88,15 @@ driver implementations, which are the only pieces allowed to know which platform
         fallback done and tested 2026-07-29** (`src/db/drivers/browser-driver.js`, driven by
         `@capacitor-community/sqlite`'s own JS API — the actual native iOS code path is
         untouched, so this should carry over unchanged, but that's unverified until Phase 3
-        wires up a real Capacitor project and validates on-device/in-simulator). Two real
-        findings from getting this working, both written up in
-        [README-ENGINE.md](README-ENGINE.md) and reflected in `src/db/queries/search.js`'s
-        header comment:
-        - `jeep-sqlite`'s web fallback runs on `sql.js`, whose standard published WASM build
-          has **no FTS5 module** ("no such module: fts5"). Swapping in a different,
-          FTS5-enabled `sql.js` build doesn't fix it either — `jeep-sqlite`'s bundled JS glue
-          is frozen against one specific `sql.js` WASM ABI, and a mismatched wasm binary fails
-          differently but just as hard (tried; got a LinkError, then a "null function" runtime
-          abort). Consequently **the Phase 1 query layer doesn't use `search_fts`/FTS5 at
-          all** — every tier (kanji/reading/gloss × exact/prefix/substring) uses a uniform
-          `LIKE`-scan approach instead, so the same code behaves identically on every driver.
-          This supersedes the kanji-vs-reading/gloss FTS asymmetry noted below and in the old
-          open decision 5 — that asymmetry is moot now since nothing uses FTS5 here. The
-          `search_fts` table itself is untouched in the build pipeline/schema; revisit FTS5
-          later as a native-only optimization (Node/Electron and iOS both support it fine)
-          behind a driver capability flag if scan performance turns out to matter on-device.
-        - Relatedly, `package.json` pins `sql.js` to exactly `1.11.0` (not `^1.11.0`) — see
+        wires up a real Capacitor project and validates on-device/in-simulator). Real findings
+        from getting this working, written up in [README-ENGINE.md](README-ENGINE.md):
+        - `package.json` pins `sql.js` to exactly `1.11.0` (not `^1.11.0`) — see
           `scripts/copy-sql-wasm.mjs`'s header comment for why a semver-compatible newer
-          version breaks the ABI match above.
-        - The real 164MB `dictionary.db` (`search_fts` table and all) loads and opens fine
-          through this driver in practice — fetch+import well under a second locally, despite
-          `sql.js` holding the whole database in WASM memory, and the FTS5 table's presence
-          doesn't block opening the file or querying the other tables even though the query
-          layer never touches it. Verified via the dev harness's "load real dictionary" button.
+          version breaks jeep-sqlite's bundled JS glue's WASM ABI match.
+        - The real 134MB `dictionary.db` loads and opens fine through this driver in
+          practice — fetch+import well under a second locally, despite `sql.js` holding the
+          whole database in WASM memory. Verified via the dev harness's "load real dictionary"
+          button.
           The assembled database is named `dictionary.db` (not `.sqlite`) specifically because
           jeep-sqlite's HTTP-import path picks its strategy from the URL's file extension and
           only recognizes `.db`/`.zip` — see `scripts/assemble-sqlite.mjs`.
@@ -160,15 +144,10 @@ driver implementations, which are the only pieces allowed to know which platform
   - [x] **Tiered plain-text match**: exact match on reading/kanji/gloss, then prefix, then
         substring, stopping as soon as a tier returns good hits. Within each tier, sort by
         the commonness score from Phase 0 (priority-tagged entries first, untagged last),
-        not by raw match order. Implemented in `src/db/queries/search.js`. **Superseded note**
-        (originally added 2026-07-29 after verifying the built DB, superseded the same day
-        after implementing this bullet): the kanji-vs-FTS asymmetry described here no longer
-        applies — the query layer doesn't use `search_fts`/FTS5 for *any* field, kanji or
-        reading/gloss, per the FTS5-in-the-browser-driver finding written up above and in
-        `search.js`'s header comment. All three fields use the same `LIKE`-scan approach at
-        every tier now, so there's no asymmetry between them (they're uniformly not
+        not by raw match order. Implemented in `src/db/queries/search.js`: kanji, reading, and
+        gloss all use the same `LIKE`-scan approach at every tier, uniformly not
         index-accelerated for prefix/substring, beyond exact/prefix benefiting incidentally
-        from `entry_kanji`/`entry_readings`' plain b-tree indexes).
+        from `entry_kanji`/`entry_readings`' plain b-tree indexes.
   - [x] **Wildcards**: if the query contains `?` or `*`, parse as an explicit pattern
         (translated to a `LIKE`/`GLOB` query) and skip fuzzy correction. This also covers
         starts-with (`食*`) and ends-with (`*る`) without separate UI. Implemented as
@@ -377,14 +356,11 @@ container for sync:
    layer sitting behind a small driver interface, with a native Capacitor SQLite plugin on iOS
    and `better-sqlite3`-over-IPC on Mac as the only platform-specific pieces, built and proven
    out on its own before any UI work (see Phase 1).
-5. ~~Whether kanji-headword search stays on its current non-FTS code path (simpler, but a
-   different performance profile than reading/gloss tiers) or gets added to the FTS index in
-   the build pipeline.~~ — **superseded 2026-07-29**: moot now that the whole Phase 1 query
-   layer avoids `search_fts`/FTS5 entirely, for every field, not just kanji — see the FTS5
-   finding under Phase 1's Capacitor SQLite driver bullet above. `search_fts` stays in the
-   build pipeline/schema unused for now; revisit as a native-only optimization later if
-   reading/gloss scan performance turns out to matter on-device (Node/Electron and iOS both
-   support FTS5 fine — only the browser dev-driver's `sql.js` build can't).
+5. ~~Whether kanji-headword search stays on its current linear-scan code path (simpler, but a
+   different performance profile than reading/gloss tiers) or gets index-accelerated in the
+   build pipeline.~~ — **superseded 2026-07-29**: moot now that the whole Phase 1 query layer
+   uses the same uniform `LIKE`-scan for every field, not just kanji — see Phase 1's Capacitor
+   SQLite driver bullet above.
 
 ## Where to start
 

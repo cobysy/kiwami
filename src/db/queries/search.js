@@ -6,23 +6,10 @@
 //   "Kanji-count filter: expose headword length filtering ... as a query
 //   parameter, a facet on top of the base query."
 //
-// Deliberately doesn't use the `search_fts` FTS5 table the build pipeline
-// creates (see scripts/assemble-sqlite.mjs) even though it would make
-// reading/gloss prefix and substring matching faster on the real dictionary.
-// Found while getting Phase 1's browser driver working: jeep-sqlite's web
-// fallback runs on sql.js, whose standard published WASM build has no FTS5
-// module compiled in ("no such module: fts5"), and its bundled JS glue is
-// frozen against a specific sql.js WASM ABI — swapping in a different
-// FTS5-enabled sql.js build breaks that ABI instead of fixing it (tried;
-// got a LinkError, then a "null function" runtime abort). better-sqlite3
-// (Node/Electron) and iOS's native SQLite both support FTS5 fine, so this
-// is a browser-dev-driver-only gap, not a schema problem — but Phase 1's
-// explicit goal is one query layer that behaves identically on every
-// driver, so every tier here uses the same LIKE-scan approach on
-// entry_kanji/entry_readings/entry_glosses.text uniformly, same as kanji
-// substring search already had to (see PLAN.md open decision 5). Revisit
-// FTS5 later as a native-only optimization behind a driver capability flag
-// if reading/gloss scan performance turns out to matter on-device.
+// Every tier uses the same LIKE-scan approach on
+// entry_kanji/entry_readings/entry_glosses.text uniformly, so behavior is
+// identical across every driver (Phase 1's explicit goal — see PLAN.md open
+// decision 5).
 import { fetchEntriesByIds } from './entries.js';
 
 const TIERS = ['exact', 'prefix', 'substring'];
