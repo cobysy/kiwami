@@ -12,6 +12,15 @@
 import { ref, computed, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './db/drivers/browser-driver.js';
 import { search, fuzzySearch, deconjugate } from './db/dictionary/index.js';
+import { DIALECT_OPTIONS } from './db/dictionary/dialect-labels.js';
+import { priorityLabel } from './db/dictionary/frequency-labels.js';
+
+// Tooltip text for a result's raw priority tags (news1, nf12, ...) - the
+// tags are meaningless on their own (especially nfXX bands), so the visible
+// badge stays terse and the decoded meaning is a hover-away.
+function priorityTitle(tags) {
+  return tags.map((tag) => `${tag}: ${priorityLabel(tag)}`).join('\n');
+}
 
 const status = ref('idle');
 const errorMessage = ref('');
@@ -19,6 +28,7 @@ const errorMessage = ref('');
 const query = ref('');
 const matchMode = ref('auto'); // 'auto' | 'startsWith' | 'endsWith' | 'contains'
 const kanjiCount = ref(null); // 1 | 2 | 3 | 4 | null
+const dialect = ref(null); // JMdict dial tag (e.g. 'ksb') | null
 const showArchaic = ref(false);
 const tier = ref(null);
 const results = ref([]);
@@ -28,29 +38,23 @@ const deconjugated = ref([]);
 
 // The engine returns archaic/obsolete/rare/obscure entries flagged, not
 // filtered out (PLAN.md: "the engine decides the tier and flag, the UI
-// decides how to display it") — they're already sorted to the bottom of
-// their tier, so hiding them here by default is a pure client-side filter,
-// no re-query needed to toggle. But if every match for a query is archaic
-// (e.g. なむち), filtering them all out would show "no results" for a
-// query that actually has hits — fall back to showing them rather than
-// hiding a query's only matches, and still report the archaic count either
-// way (hidden count when some are hidden, shown count when they're all
-// that's there).
+// decides how to display it"). They always live in their own block below
+// the main list rather than interleaved by score — an archaic sense of a
+// common word (e.g. 母/いろは, an archaic reading meaning "birth mother")
+// would otherwise land near the top of the list by commonness/tier order
+// despite being a dead usage, which reads as "this is a live result" when
+// it isn't. showArchaic reveals that block instead of hiding it outright,
+// and if every match for a query is archaic (e.g. なむち), it's shown
+// regardless of the toggle — otherwise a query that actually has hits would
+// look like "no results".
 function archaicView(list) {
-  const archaicCount = list.filter((r) => r.archaic).length;
-  if (showArchaic.value || archaicCount === 0) return { list, archaicCount: 0, allArchaic: false };
-  const nonArchaic = list.filter((r) => !r.archaic);
-  if (nonArchaic.length > 0) return { list: nonArchaic, archaicCount, allArchaic: false };
-  return { list, archaicCount, allArchaic: true };
+  const main = list.filter((r) => !r.archaic);
+  const archaic = list.filter((r) => r.archaic);
+  const allArchaic = main.length === 0 && archaic.length > 0;
+  return { main, archaic, allArchaic };
 }
 const resultsView = computed(() => archaicView(results.value));
 const fuzzyResultsView = computed(() => archaicView(fuzzyResults.value));
-const visibleResults = computed(() => resultsView.value.list);
-const visibleFuzzyResults = computed(() => fuzzyResultsView.value.list);
-// archaicView zeroes its count once showArchaic is on (nothing's hidden
-// anymore), but the toggle's own label needs the count regardless of its
-// current state, so this reads straight off the raw results.
-const rawArchaicCount = computed(() => results.value.filter((r) => r.archaic).length);
 
 let driver = null;
 
@@ -75,6 +79,9 @@ async function loadRealDictionary() {
 // query-layer logic.
 function effectiveQuery() {
   const q = query.value.trim();
+  // Blank query stays blank regardless of matchMode - wrapping it (e.g.
+  // "*") would turn a dialect-only browse into a full wildcard table scan.
+  if (!q) return q;
   if (matchMode.value === 'startsWith') return `${q}*`;
   if (matchMode.value === 'endsWith') return `*${q}`;
   if (matchMode.value === 'contains') return `*${q}*`;
@@ -89,15 +96,17 @@ function onPaste() {
 }
 
 async function runSearch() {
-  if (!driver || !query.value.trim()) {
+  const hasQuery = query.value.trim().length > 0;
+  if (!driver || (!hasQuery && !dialect.value)) {
     results.value = [];
     tier.value = null;
     deconjugated.value = [];
     return;
   }
+  const searchOptions = { kanjiCount: kanjiCount.value ?? undefined, dialect: dialect.value ?? undefined };
   const [searchResult, deconjResult] = await Promise.all([
-    search(driver, effectiveQuery(), { kanjiCount: kanjiCount.value ?? undefined }),
-    deconjugate(driver, query.value),
+    search(driver, effectiveQuery(), searchOptions),
+    hasQuery ? deconjugate(driver, query.value) : Promise.resolve([]),
   ]);
   tier.value = searchResult.tier;
   results.value = searchResult.results;
@@ -166,10 +175,20 @@ onMounted(loadRealDictionary);
       </label>
     </p>
     <p>
+      Dialect:
+      <select v-model="dialect" @change="runSearch">
+        <option :value="null">any</option>
+        <option v-for="[tag, label] in DIALECT_OPTIONS" :key="tag" :value="tag">{{ label }}</option>
+      </select>
+      <span v-if="dialect && !query.trim()" style="font-size: 0.85em; color: #555;">
+        (browsing every entry tagged {{ DIALECT_OPTIONS.find(([t]) => t === dialect)?.[1] }})
+      </span>
+    </p>
+    <p>
       <label>
         <input type="checkbox" v-model="showArchaic" />
         Show archaic/obsolete/rare matches
-        <span v-if="rawArchaicCount > 0">({{ rawArchaicCount }})</span>
+        <span v-if="resultsView.archaic.length > 0">({{ resultsView.archaic.length }})</span>
       </label>
     </p>
 
@@ -180,35 +199,63 @@ onMounted(loadRealDictionary);
       </div>
     </div>
 
-    <p v-if="tier">
-      Tier: <strong>{{ tier }}</strong> — {{ visibleResults.length }} result(s)
-      <span v-if="resultsView.archaicCount > 0" style="color: #888;">
-        ({{ resultsView.archaicCount }} archaic/obsolete/rare{{ resultsView.allArchaic ? ' — no other matches' : ' hidden' }})
-      </span>
-    </p>
-    <ul>
-      <li v-for="r in visibleResults" :key="r.id">
-        <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
-        <span v-if="r.kanji.length"> ({{ r.readings.join('、') }})</span>
-        <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
-        — {{ r.glosses.join('; ') }}
-        <span v-if="r.archaic" style="color: #888;">[{{ r.labels.join(', ') }}]</span>
-        <span style="color: #aaa;"> score={{ r.commonness_score }}</span>
-      </li>
-    </ul>
+    <template v-if="!showFuzzy">
+      <p v-if="tier">
+        Tier: <strong>{{ tier }}</strong> — {{ resultsView.main.length }} result(s)
+        <span v-if="resultsView.archaic.length > 0 && !resultsView.allArchaic" style="color: #888;">
+          ({{ resultsView.archaic.length }} archaic/obsolete/rare in a separate block below{{ showArchaic ? '' : ', hidden' }})
+        </span>
+      </p>
+      <ul>
+        <li v-for="r in resultsView.main" :key="r.id">
+          <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
+          <span v-if="r.kanji.length"> ({{ r.readings.join('、') }})</span>
+          <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
+          — {{ r.glosses.join('; ') }}
+          <span v-if="r.dialect.length" style="color: #888;">[{{ r.dialect.join(', ') }}]</span>
+          <span style="color: #aaa;" :title="priorityTitle(r.priority)">
+            score={{ r.commonness_score }}<template v-if="r.priority.length"> ({{ r.priority.join(', ') }})</template>
+          </span>
+        </li>
+      </ul>
 
-    <p v-if="query && !showFuzzy">
-      <a href="#" @click.prevent="runFuzzy">Didn't find it? Try fuzzy search</a>
-    </p>
+      <div v-if="resultsView.archaic.length > 0 && (showArchaic || resultsView.allArchaic)">
+        <h3 style="color: #888;">
+          Archaic / obsolete / rare matches
+          <span v-if="resultsView.allArchaic" style="font-weight: normal;">(no other matches)</span>
+        </h3>
+        <ul>
+          <li v-for="r in resultsView.archaic" :key="r.id">
+            <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
+            <span v-if="r.kanji.length"> ({{ r.readings.join('、') }})</span>
+            <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
+            — {{ r.glosses.join('; ') }}
+            <span style="color: #888;">[{{ r.labels.join(', ') }}]</span>
+            <span v-if="r.dialect.length" style="color: #888;">[{{ r.dialect.join(', ') }}]</span>
+            <span style="color: #aaa;" :title="priorityTitle(r.priority)">
+              score={{ r.commonness_score }}<template v-if="r.priority.length"> ({{ r.priority.join(', ') }})</template>
+            </span>
+          </li>
+        </ul>
+      </div>
+
+      <p v-if="query">
+        <a href="#" @click.prevent="runFuzzy">Didn't find it? Try fuzzy search</a>
+      </p>
+    </template>
+
     <div v-if="showFuzzy">
+      <p>
+        <a href="#" @click.prevent="showFuzzy = false">← Back to search results</a>
+      </p>
       <h3>
         Fuzzy matches
-        <span v-if="fuzzyResultsView.archaicCount > 0" style="color: #888; font-weight: normal;">
-          ({{ fuzzyResultsView.archaicCount }} archaic/obsolete/rare{{ fuzzyResultsView.allArchaic ? ' — no other matches' : ' hidden' }})
+        <span v-if="fuzzyResultsView.archaic.length > 0 && !fuzzyResultsView.allArchaic" style="color: #888; font-weight: normal;">
+          ({{ fuzzyResultsView.archaic.length }} archaic/obsolete/rare in a separate block below{{ showArchaic ? '' : ', hidden' }})
         </span>
       </h3>
       <ul>
-        <li v-for="r in visibleFuzzyResults" :key="r.id">
+        <li v-for="r in fuzzyResultsView.main" :key="r.id">
           <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
           ({{ r.readings.join('、') }})
           <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
@@ -216,6 +263,22 @@ onMounted(loadRealDictionary);
           <span style="color: #aaa;"> distance={{ r.distance.toFixed(2) }}</span>
         </li>
       </ul>
+
+      <div v-if="fuzzyResultsView.archaic.length > 0 && (showArchaic || fuzzyResultsView.allArchaic)">
+        <h4 style="color: #888;">
+          Archaic / obsolete / rare matches
+          <span v-if="fuzzyResultsView.allArchaic" style="font-weight: normal;">(no other matches)</span>
+        </h4>
+        <ul>
+          <li v-for="r in fuzzyResultsView.archaic" :key="r.id">
+            <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
+            ({{ r.readings.join('、') }})
+            <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
+            — {{ r.glosses.join('; ') }}
+            <span style="color: #aaa;"> distance={{ r.distance.toFixed(2) }}</span>
+          </li>
+        </ul>
+      </div>
     </div>
   </main>
 </template>

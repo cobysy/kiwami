@@ -3,7 +3,7 @@
 // lists, commonness, archaic flag + specific tag labels, part of speech)
 // sorted the way PLAN.md's Phase 1 tiered-match spec describes —
 // common-first within a tier, archaic pushed down rather than filtered out.
-import { summarizePos } from './pos-labels.js';
+import { dialectLabel } from './dialect-labels.js';
 
 // Pulls the archaic/rare/obsolete/obscure tags actually present on an
 // entry's senses (same pattern verify-db.mjs's example queries use), so
@@ -13,6 +13,25 @@ const LABELS_SUBQUERY = `(
   SELECT GROUP_CONCAT(DISTINCT m.value) FROM entry_senses s, json_each(s.misc) m
   WHERE s.entry_id = e.id AND m.value IN ('arch', 'obs', 'rare', 'obsc')
 ) AS labels`;
+
+// Same GROUP_CONCAT-across-senses pattern as LABELS_SUBQUERY, but for
+// entry_senses.dial (regional dialect tags, e.g. ksb/Kansai-ben) so results
+// can show which entries are dialect-specific.
+const DIALECT_SUBQUERY = `(
+  SELECT GROUP_CONCAT(DISTINCT dialect_tag.value) FROM entry_senses s, json_each(s.dial) dialect_tag
+  WHERE s.entry_id = e.id
+) AS dialect`;
+
+// Raw ke_pri/re_pri tags (news1, ichi1, nf12, ...) behind commonness_score -
+// see frequency-labels.js for what each tag means. Pulled from both
+// entry_kanji and entry_readings since either can carry priority tags.
+const PRIORITY_SUBQUERY = `(
+  SELECT GROUP_CONCAT(DISTINCT tag) FROM (
+    SELECT priority_tag.value AS tag FROM entry_kanji k, json_each(k.priority) priority_tag WHERE k.entry_id = e.id
+    UNION
+    SELECT priority_tag.value AS tag FROM entry_readings r, json_each(r.priority) priority_tag WHERE r.entry_id = e.id
+  )
+) AS priority`;
 
 /**
  * @param {import('../driver.js').DBDriver} driver
@@ -27,7 +46,7 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
 
   const placeholders = ids.map(() => '?').join(',');
   const rows = await driver.all(
-    `SELECT e.id, e.kanji_count, e.commonness_score, e.is_archaic, ${LABELS_SUBQUERY}
+    `SELECT e.id, e.kanji_count, e.commonness_score, e.is_archaic, ${LABELS_SUBQUERY}, ${DIALECT_SUBQUERY}, ${PRIORITY_SUBQUERY}
      FROM entries e
      WHERE e.id IN (${placeholders})
      ORDER BY e.is_archaic ASC, e.commonness_score DESC
@@ -45,9 +64,15 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
     row.kanji = kanji.map((r) => r.text);
     row.readings = readings.map((r) => r.text);
     row.glosses = glosses.map((r) => r.text);
-    row.pos = summarizePos(senses.map((s) => JSON.parse(s.pos)));
+    // Raw JMdict pos tags (v5k, adj-i, n, ...), deduped in first-seen order
+    // across senses - no display bucketing/relabeling.
+    row.pos = [...new Set(senses.flatMap((s) => JSON.parse(s.pos)))];
     row.archaic = row.is_archaic === 1;
     row.labels = row.labels ? row.labels.split(',') : [];
+    row.dialect = row.dialect ? row.dialect.split(',').map(dialectLabel) : [];
+    // Raw tags (news1, ichi1, nf12, ...); see frequency-labels.js for the
+    // decoded meaning behind each one.
+    row.priority = row.priority ? row.priority.split(',') : [];
     delete row.is_archaic;
   }
   return rows;

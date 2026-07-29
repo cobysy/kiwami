@@ -143,18 +143,19 @@ export function runDictionarySuite(label, createDriver) {
         expect(ids).toContain(2831811);
       });
 
-      it('summarizes part-of-speech tags into display categories', async () => {
+      it('surfaces raw JMdict pos tags, deduped in first-seen order', async () => {
         // Anchors looked up directly against the real data, same as the
-        // archaic-labels test above: 食べる (1358280, ichidan verb) is
-        // verb-only, 大きい (1588880, adj-i) and 静か (1381820, adj-na) are
-        // single-category adjectives, and 勉強 (1512670) has both a plain
-        // noun sense and a suru-verb sense, so it should surface both.
-        expect((await search(driver, '食べる')).results[0].pos).toEqual(['verb']);
-        expect((await search(driver, '大きい')).results[0].pos).toEqual(['い-adj']);
-        expect((await search(driver, '静か')).results[0].pos).toEqual(['な-adj']);
+        // archaic-labels test above: 食べる (1358280) is v1/vt across both
+        // senses, 大きい (1588880) is adj-i-only, 静か (1381820) is
+        // adj-na-only, and 勉強 (1512670) mixes plain-noun and suru-verb
+        // senses (n/vs/vt/vi) - each entry's tags should collapse to their
+        // distinct values without reordering.
+        expect((await search(driver, '食べる')).results[0].pos).toEqual(['v1', 'vt']);
+        expect((await search(driver, '大きい')).results[0].pos).toEqual(['adj-i']);
+        expect((await search(driver, '静か')).results[0].pos).toEqual(['adj-na']);
         const { results } = await search(driver, '勉強');
         const benkyou = results.find((r) => r.id === 1512670);
-        expect(benkyou.pos).toEqual(['verb', 'noun']);
+        expect(benkyou.pos).toEqual(['n', 'vs', 'vt', 'vi']);
       });
 
       it('applies the kanji-count facet as an exact filter for 1-3', async () => {
@@ -167,6 +168,35 @@ export function runDictionarySuite(label, createDriver) {
       it('treats kanji-count 4 as "4 or more"', async () => {
         const { results } = await search(driver, '一石二鳥', { kanjiCount: 4 });
         expect(results.map((r) => r.id)).toContain(1164160);
+      });
+
+      it('labels dialect-tagged entries with their display name', async () => {
+        // 明かん/あかん (id 1000230, "useless"/"no good") is tagged ksb
+        // (Kansai-ben) in the real data - see dialect-labels.js for the tag
+        // -> display-name mapping.
+        const { results } = await search(driver, 'あかん');
+        const akan = results.find((r) => r.id === 1000230);
+        expect(akan.dialect).toContain('Kansai-ben');
+      });
+
+      it('applies the dialect facet to a text search', async () => {
+        const { results } = await search(driver, 'あかん', { dialect: 'ksb' });
+        expect(results.map((r) => r.id)).toContain(1000230);
+        const { results: none } = await search(driver, 'あかん', { dialect: 'tsug' });
+        expect(none.map((r) => r.id)).not.toContain(1000230);
+      });
+
+      it('browses every entry tagged with a dialect when the query is blank', async () => {
+        const { tier, results } = await search(driver, '', { dialect: 'ksb' });
+        expect(tier).toBe('dialect');
+        expect(results.map((r) => r.id)).toContain(1000230);
+        expect(results.every((r) => r.dialect.includes('Kansai-ben'))).toBe(true);
+      });
+
+      it('returns nothing for a blank query with no dialect set', async () => {
+        const { tier, results } = await search(driver, '');
+        expect(tier).toBeNull();
+        expect(results).toEqual([]);
       });
     });
 
