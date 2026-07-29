@@ -82,8 +82,12 @@ runtime loading strategy is not yet implemented. The plan still needs a concrete
 how the UI will open and query the SQLite file at runtime (for example, via a WASM-based
 SQLite engine with persistent storage, or another approach that fits the target browsers).
 
-**Transfer compression, added 2026-07-29, removed 2026-07-29**: `dictionary.db` gzips well —
-measured ~163.8MB → ~62.7MB (~62% smaller), since it's full of repeated JSON text (tag arrays,
-etc.) — worth revisiting if/when a network-fetch runtime path (rather than bundling the `.db`
-as a native app asset) is actually built. Pulled the `gzip` build step for now since nothing
-consumes its output yet; see PLAN.md's runtime-storage section.
+**Transfer compression, added 2026-07-29, removed 2026-07-29, re-added 2026-07-29**:
+`dictionary.db` compresses well — full of repeated JSON text (tag arrays, etc.). First tried as
+plain gzip (~163.8MB → ~62.7MB); pulled since nothing consumed the output yet. Re-added as a
+`.zip` instead (134MB → ~49MB) once the browser runtime-loading path
+(`ensureDatabaseFromUrl` in `browser-sqlite-driver.js`) existed to consume it — jeep-sqlite's
+HTTP-import path natively fetches and unzips a `.zip` URL client-side (via bundled JSZip), so
+zip needs no bespoke decompression code, unlike gzip. `public/dictionary.db.zip` is now the
+file tracked in git (under GitHub's 100MB file limit; the raw `.db` isn't) and the one served
+at runtime — see `scripts/zip-db.mjs` / `scripts/unzip-db.mjs`.

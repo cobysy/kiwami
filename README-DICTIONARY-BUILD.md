@@ -40,6 +40,11 @@ The build pipeline produces:
 - public/dictionary.db: the assembled database used by the app (named `.db` rather than
   `.sqlite` so jeep-sqlite's browser HTTP-import path, which switches on URL file
   extension, can fetch it directly — see scripts/assemble-sqlite.mjs)
+- public/dictionary.db.zip: `dictionary.db` compressed to ~1/3 its size (scripts/zip-db.mjs) —
+  the file actually tracked in git and fetched at runtime; jeep-sqlite's HTTP-import path
+  natively unzips a `.zip` URL client-side, so no bespoke decompression code is needed. A
+  fresh clone/`npm install` re-extracts `public/dictionary.db` from it automatically
+  (scripts/unzip-db.mjs, `postinstall`)
 
 ## Verification
 

@@ -18,7 +18,10 @@
 #   furigana, compounds           one normalized-data build stage each
 #   db                            assemble everything into dictionary.db
 #                                  (scripts/assemble-sqlite.mjs)
-#   build-all                     all six build stages above, in dependency order
+#   zip                           compress dictionary.db to dictionary.db.zip,
+#                                  the file actually tracked in git and served
+#                                  at runtime (scripts/zip-db.mjs)
+#   build-all                     all seven build stages above, in dependency order
 #   all                           fetch-all then build-all
 #
 # Extra args after the step name are forwarded, e.g.:
@@ -35,7 +38,7 @@ STEP="${1:-}"
 
 usage() {
   echo "Usage: npm run build:db -- <step> [args...]"
-  echo "Steps: jmdict kanjidic tatoeba fetch-all entries kanji sentences furigana compounds db build-all all"
+  echo "Steps: jmdict kanjidic tatoeba fetch-all entries kanji sentences furigana compounds db zip build-all all"
   exit 1
 }
 
@@ -54,6 +57,7 @@ build_all() {
   node "$SCRIPT_DIR/build-furigana.mjs"
   node "$SCRIPT_DIR/build-compounds.mjs"
   node "$SCRIPT_DIR/assemble-sqlite.mjs"
+  node "$SCRIPT_DIR/zip-db.mjs"
 }
 
 case "$STEP" in
@@ -67,6 +71,7 @@ case "$STEP" in
   furigana)  node "$SCRIPT_DIR/build-furigana.mjs" ;;
   compounds) node "$SCRIPT_DIR/build-compounds.mjs" ;;
   db)        node "$SCRIPT_DIR/assemble-sqlite.mjs" ;;
+  zip)       node "$SCRIPT_DIR/zip-db.mjs" ;;
   build-all) build_all ;;
   all)       fetch_all; build_all ;;
   *)         echo "Unknown step: $STEP"; usage ;;

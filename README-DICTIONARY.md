@@ -47,10 +47,16 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   `public/assets/kuromoji-dict/`, where `tokenizer.js`'s deconjugation fallback expects them
   (a filesystem dir in Node, a URL prefix in the browser). Runs automatically on `npm install`
   (`postinstall`).
-- `npm run build:db -- db` — assembles `public/dictionary.db`, tracked in git (see
-  `scripts/assemble-sqlite.mjs`). It's named `.db` rather than `.sqlite` specifically so the
-  dev harness's "load real dictionary" button can fetch it via jeep-sqlite's HTTP-import path —
-  see `ensureDatabaseFromUrl` in `browser-sqlite-driver.js` for why the extension matters.
+- `npm run build:db -- db` — assembles `public/dictionary.db`. It's named `.db` rather than
+  `.sqlite` specifically so the dev harness's "load real dictionary" button can fetch it via
+  jeep-sqlite's HTTP-import path — see `ensureDatabaseFromUrl` in `browser-sqlite-driver.js`
+  for why the extension matters.
+- `npm run build:db -- zip` — compresses it to `public/dictionary.db.zip` (~1/3 the size),
+  the file actually tracked in git and fetched at runtime; jeep-sqlite unzips a `.zip` URL
+  client-side natively, no app-side decompression code needed (`scripts/zip-db.mjs`).
+- `npm run setup:db` — the reverse: extracts `public/dictionary.db` back out of the tracked
+  `.zip`. Runs automatically on `npm install` (`postinstall`), so a fresh clone never needs
+  network access to resume dev (`scripts/unzip-db.mjs`).
 
 ## Findings from building this (see PLAN.md for the full write-up)
 

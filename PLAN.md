@@ -131,10 +131,11 @@ driver implementations, which are the only pieces allowed to know which platform
       as an app asset and copying it into the app's native local data directory (both
       platforms, via each driver's own storage APIs) on first run avoids a redundant network
       fetch entirely. If a network fetch is still wanted later (e.g. to let the app ship
-      without the dictionary and let it lag the build pipeline), revisit gzipping it for
-      transfer and decompressing via `DecompressionStream('gzip')` before storing the bytes via
-      the active driver's storage — no such fetch path exists yet, so there's no gzip build
-      step today either. Either way, on every launch after first load, open it from local
+      without the dictionary and let it lag the build pipeline), the browser driver's
+      `ensureDatabaseFromUrl` path already does this — see the `.zip` transfer-compression note
+      below — but native storage APIs would need their own decompress-on-import step (e.g.
+      `DecompressionStream`), not yet built for the iOS/Electron drivers. Either way, on every
+      launch after first load, open it from local
       storage via the driver (no re-fetch, no full-file memory load — pages are read from the
       persisted file as needed), and if local storage reports the file missing/empty,
       re-fetch/re-copy it — the app should treat this as a normal "first launch" path, not an

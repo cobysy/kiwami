@@ -20,7 +20,7 @@ runDictionarySuite('browser (jeep-sqlite)', async () => {
   await ensureJeepSqliteElement();
   // Fetched once and cached in IndexedDB by jeep-sqlite; ensureDatabaseFromUrl
   // no-ops on subsequent runs once it's present.
-  await ensureDatabaseFromUrl('dictionary', '/dictionary.db');
+  await ensureDatabaseFromUrl('dictionary', '/dictionary.db.zip');
   const driver = createBrowserDriver('dictionary', { readonly: true });
   await driver.open();
   return driver;

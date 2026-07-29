@@ -154,7 +154,7 @@ async function loadRealDictionary() {
   status.value = 'loading';
   errorMessage.value = '';
   try {
-    await ensureDatabaseFromUrl('dictionary', '/dictionary.db');
+    await ensureDatabaseFromUrl('dictionary', '/dictionary.db.zip');
     await driver?.close();
     driver = createBrowserDriver('dictionary', { readonly: true });
     await driver.open();
