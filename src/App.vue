@@ -26,6 +26,7 @@ function priorityTitle(tags) {
 
 const status = ref('idle');
 const errorMessage = ref('');
+const searchInput = ref(null);
 
 const statusLabel = computed(() => ({
   idle: 'Idle',
@@ -224,7 +225,10 @@ async function runFuzzy() {
   fuzzyResults.value = await fuzzySearch(driver, query.value);
 }
 
-onMounted(loadRealDictionary);
+onMounted(() => {
+  loadRealDictionary();
+  searchInput.value?.focus();
+});
 </script>
 
 <template>
@@ -287,6 +291,7 @@ onMounted(loadRealDictionary);
             <path d="m21 21-4.3-4.3" />
           </svg>
           <input
+            ref="searchInput"
             v-model="query"
             type="text"
             inputmode="search"
