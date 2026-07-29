@@ -10,9 +10,11 @@
 // mirroring how public/assets/sql-wasm.wasm is set up for jeep-sqlite.
 import kuromoji from 'kuromoji';
 
+// Root-absolute here would 404 once the app is served from a subpath (e.g.
+// GitHub Pages' /kiwami/), same issue as jeep-sqlite's wasmPath — see main.js.
 const DIC_PATH = typeof window === 'undefined'
   ? new URL('../../public/assets/kuromoji-dict/', import.meta.url).pathname
-  : '/assets/kuromoji-dict/';
+  : `${import.meta.env.BASE_URL}assets/kuromoji-dict/`;
 
 let tokenizerPromise = null;
 
