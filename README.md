@@ -9,7 +9,7 @@ A Japanese smart dictionary to find a word from how it sounds.
 - Furigana you can toggle off
 - Favourites/history that sync across your own devices — no account, no server
 
-![Searching "した" in Kiwami's dev harness: it deconjugates to 擦る/為る/刷る/剃る/掏る and lists dictionary matches with tags and glosses](docs/screenshot.png)
+![Searching "した" in Kiwami's dev harness: it deconjugates to 擦る/為る/刷る/剃る and lists dictionary matches with tags and glosses](docs/screenshot.png)
 
 Regenerate this screenshot with `npm run screenshot` (see [scripts/screenshot.mjs](scripts/screenshot.mjs); requires `public/dictionary.db` — run `npm run build:db` first if missing).
 

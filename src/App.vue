@@ -74,6 +74,15 @@ function archaicView(list) {
 const resultsView = computed(() => archaicView(results.value));
 const fuzzyResultsView = computed(() => archaicView(fuzzyResults.value));
 
+// Deconjugation candidates lean on loose suffix-stripping (and, as a
+// fallback, kuromoji's basic_form guesses - see deconjugate.js), which
+// surfaces obscure same-reading verbs (e.g. した also deconjugates to 為る,
+// 擦る, 剃る, 掏る) alongside the one the user actually meant. Priority tags
+// (news1/ichi1/spec1/gai1/...) are JMdict's own commonness signal - the same
+// one driving the score badge on regular results - so reusing it here hides
+// that noise without a separate heuristic.
+const commonDeconjugated = computed(() => deconjugated.value.filter((d) => d.priority.length > 0));
+
 const selectedDialectLabel = computed(
   () => DIALECT_OPTIONS.find(([t]) => t === dialect.value)?.[1] ?? null,
 );
@@ -292,8 +301,8 @@ onMounted(loadRealDictionary);
         </label>
       </section>
 
-      <section v-if="deconjugated.length" class="deconj-card">
-        <div v-for="d in deconjugated" :key="`${d.id}-${d.relation}`" class="deconj-row">
+      <section v-if="commonDeconjugated.length" class="deconj-card">
+        <div v-for="d in commonDeconjugated" :key="`${d.id}-${d.relation}`" class="deconj-row">
           <span class="deconj-surface">{{ d.surface }}</span>
           <span class="deconj-arrow">→</span>
           <span class="deconj-relation">{{ d.relation }}</span>
