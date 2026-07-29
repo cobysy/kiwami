@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Kiwami (極) — offline-first Japanese dictionary PWA",
+  "description": "Kiwami (極) — another Japanese dictionary",
   "license": "MIT",
   "scripts": {
     "build:db": "bash scripts/build-db.sh",

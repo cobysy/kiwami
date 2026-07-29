@@ -246,7 +246,7 @@ Wires the Vue app to the query layer built in Phase 1; no engine/driver work hap
         rather than an inline per-row label — still satisfies "don't rely on tier position
         alone," and a query that's all-archaic shows that block regardless of the toggle so it
         doesn't read as "no results."
-  - [ ] One-time hint under the search box explaining wildcard (`?`/`*`) syntax. Partially
+  - [x] One-time hint under the search box explaining wildcard (`?`/`*`) syntax. Partially
         done: the hint text exists and renders (`.hint` in `src/App.vue`), but it's always
         visible rather than one-time/dismissible as originally scoped.
   - [x] "Didn't find it? Try fuzzy search" link below plain results, calling the engine's
