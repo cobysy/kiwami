@@ -1,6 +1,6 @@
 // npm run verify:db
 //
-// Sanity-checks public/dictionary.sqlite after `npm run build:db -- all` (or `-- db`):
+// Sanity-checks public/dictionary.db after `npm run build:db -- all` (or `-- db`):
 // foreign key integrity, row counts per table, an FTS5 search spot check
 // (kana reading + English gloss), a full entry reconstruction, the
 // kanji -> kanji_compounds join (common-first ordering), the
@@ -25,7 +25,7 @@ import { existsSync, statSync } from 'node:fs';
 import Database from 'better-sqlite3';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_FILE = path.join(__dirname, '../public/dictionary.sqlite');
+const DB_FILE = path.join(__dirname, '../public/dictionary.db');
 
 const KNOWN_TABLES = [
   'entries', 'entry_kanji', 'entry_readings', 'entry_senses', 'entry_glosses',

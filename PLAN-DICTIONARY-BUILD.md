@@ -43,9 +43,10 @@ This document captures the dictionary data-build work that previously lived in t
       → `npm run build:db -- furigana`; stored in `sentences.furigana` (JSON token/reading pairs).
 - [x] Export the finished `.sqlite` file (dictionary + sentences together) into the repo's
       public assets.
-      → `npm run build:db -- db` (or `-- all`) → `public/dictionary.sqlite` (~164MB), with a
-      gzipped companion at `public/dictionary.sqlite.gz`. The app-side integration is still
-      pending and belongs to Phase 1.
+      → `npm run build:db -- db` (or `-- all`) → `public/dictionary.db` (~164MB; named `.db`
+      rather than `.sqlite` so jeep-sqlite's browser HTTP-import path can fetch it directly —
+      see `scripts/assemble-sqlite.mjs`). The app-side integration is still pending and belongs
+      to Phase 1.
 - [x] Confirm attribution requirements for JMdict/EDRDG and for Tatoeba, and store the
       required attribution text in the database metadata.
       → Verified against edrdg.org/edrdg/licence.html and tatoeba.org's terms. The build
@@ -85,7 +86,8 @@ runtime loading strategy is not yet implemented. The plan still needs a concrete
 how the UI will open and query the SQLite file at runtime (for example, via a WASM-based
 SQLite engine with persistent storage, or another approach that fits the target browsers).
 
-**Transfer compression, added 2026-07-29**: `dictionary.sqlite` gzips well — measured
-~163.8MB → ~62.7MB (~62% smaller), since it's full of repeated JSON text (tag arrays,
-etc.). The build pipeline can emit `public/dictionary.sqlite.gz` via `npm run build:db -- gzip`.
-The app-side decompression step remains part of the future UI work.
+**Transfer compression, added 2026-07-29, removed 2026-07-29**: `dictionary.db` gzips well —
+measured ~163.8MB → ~62.7MB (~62% smaller), since it's full of repeated JSON text (tag arrays,
+etc.) — worth revisiting if/when a network-fetch runtime path (rather than bundling the `.db`
+as a native app asset) is actually built. Pulled the `gzip` build step for now since nothing
+consumes its output yet; see PLAN.md's runtime-storage section.

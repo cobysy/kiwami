@@ -10,7 +10,7 @@ never device to device directly.
 
 ## Current status
 
-As of 2026-07-29, the repository contains the dictionary data-build pipeline and the generated database assets. The build scripts, intermediate NDJSON artifacts, and the packaged SQLite files are present in the repo. The app UI and native shell work described in the later phases is still planned rather than implemented.
+As of 2026-07-29, the repository contains the dictionary data-build pipeline and the generated database assets (Phase 0), plus Phase 1's dictionary engine: the shared driver interface, the Node (better-sqlite3) and browser (jeep-sqlite web fallback) drivers, and the full query layer (tiered match, wildcards, kanji-count facet, archaic tagging, fuzzy kana matching, deconjugation) — all covered by one test suite that runs identically against both drivers (`npm run test:node` / `npm run test:browser`), plus a minimal dev harness (`npm run dev`) for exercising it by hand. See [README-ENGINE.md](README-ENGINE.md) and Phase 1 below for what's done vs. still open (notably: the Electron IPC stub, and native-storage bundling/copy-on-first-run, both deferred to Phase 3). Phase 2's real UI and the native shell work in later phases is still planned rather than implemented.
 
 See [PLAN-DICTIONARY-BUILD.md](PLAN-DICTIONARY-BUILD.md) for the dictionary data-build plan.
 
@@ -59,13 +59,22 @@ Build and prove out the dictionary engine on its own, against the already-built 
 before any UI exists. Everything in this phase is platform-agnostic app code except the two
 driver implementations, which are the only pieces allowed to know which platform they're on.
 
-- [ ] Minimal Vite + Vue 3 project scaffold — just enough to host the engine code and a small
+- [x] Minimal Vite + Vue 3 project scaffold — just enough to host the engine code and a small
       dev harness (e.g. a bare page or script) for exercising queries without building UI yet.
-- [ ] **Shared driver interface, decided 2026-07-29**: define one small interface (e.g.
+      Done 2026-07-29: `index.html` + `vite.config.js` + `src/main.js` + `src/App.vue`, the
+      latter being the dev harness (search box, kanji-count chips, fuzzy link, deconjugation
+      banner) described below — not Phase 2's real UI. See
+      [README-ENGINE.md](README-ENGINE.md).
+- [x] **Shared driver interface, decided 2026-07-29**: define one small interface (e.g.
       `run(sql, params) → rows`, plus open/close) that all query logic is written against.
       This interface, and everything built on top of it, lives in the regular Vue codebase,
       not per-shell code — it must not know or care which driver is active underneath it.
-  - [ ] **Native Capacitor SQLite plugin driver** for iOS, decided 2026-07-29 (supersedes the
+      Implemented 2026-07-29 as `open`/`exec`/`all`/`run`/`close` (`src/db/driver.js`) rather
+      than the single `run` in the original example — both real backends already draw this
+      same exec-vs-query-vs-mutate line internally (better-sqlite3, the Capacitor SQLite
+      plugin), so matching it avoids a driver-side heuristic guessing "is this DDL or a
+      parameterized statement" from a SQL string.
+  - [x] **Native Capacitor SQLite plugin driver** for iOS, decided 2026-07-29 (supersedes the
         earlier wa-sqlite/OPFS plan — see open decision 1): use a native SQLite bridge plugin
         (e.g. `@capacitor-community/sqlite`) instead of an in-page WASM engine. Same shape as
         the Electron driver below — real native SQLite (iOS ships `libsqlite3` as a system
@@ -75,46 +84,102 @@ driver implementations, which are the only pieces allowed to know which platform
         testing**: `@capacitor-community/sqlite` ships a web fallback (`jeep-sqlite`, a WASM
         SQLite web component with its own persistence) specifically so the driver and the
         query layer above it can be developed and tested in a normal `vite dev` browser tab —
-        no iPhone install needed until Phase 3/7's real on-device validation.
-  - [ ] **`better-sqlite3` driver** for Mac/Electron, decided 2026-07-29: native driver runs in
+        no iPhone install needed until Phase 3/7's real on-device validation. **Browser dev
+        fallback done and tested 2026-07-29** (`src/db/drivers/browser-driver.js`, driven by
+        `@capacitor-community/sqlite`'s own JS API — the actual native iOS code path is
+        untouched, so this should carry over unchanged, but that's unverified until Phase 3
+        wires up a real Capacitor project and validates on-device/in-simulator). Two real
+        findings from getting this working, both written up in
+        [README-ENGINE.md](README-ENGINE.md) and reflected in `src/db/queries/search.js`'s
+        header comment:
+        - `jeep-sqlite`'s web fallback runs on `sql.js`, whose standard published WASM build
+          has **no FTS5 module** ("no such module: fts5"). Swapping in a different,
+          FTS5-enabled `sql.js` build doesn't fix it either — `jeep-sqlite`'s bundled JS glue
+          is frozen against one specific `sql.js` WASM ABI, and a mismatched wasm binary fails
+          differently but just as hard (tried; got a LinkError, then a "null function" runtime
+          abort). Consequently **the Phase 1 query layer doesn't use `search_fts`/FTS5 at
+          all** — every tier (kanji/reading/gloss × exact/prefix/substring) uses a uniform
+          `LIKE`-scan approach instead, so the same code behaves identically on every driver.
+          This supersedes the kanji-vs-reading/gloss FTS asymmetry noted below and in the old
+          open decision 5 — that asymmetry is moot now since nothing uses FTS5 here. The
+          `search_fts` table itself is untouched in the build pipeline/schema; revisit FTS5
+          later as a native-only optimization (Node/Electron and iOS both support it fine)
+          behind a driver capability flag if scan performance turns out to matter on-device.
+        - Relatedly, `package.json` pins `sql.js` to exactly `1.11.0` (not `^1.11.0`) — see
+          `scripts/copy-sql-wasm.mjs`'s header comment for why a semver-compatible newer
+          version breaks the ABI match above.
+        - The real 164MB `dictionary.db` (`search_fts` table and all) loads and opens fine
+          through this driver in practice — fetch+import well under a second locally, despite
+          `sql.js` holding the whole database in WASM memory, and the FTS5 table's presence
+          doesn't block opening the file or querying the other tables even though the query
+          layer never touches it. Verified via the dev harness's "load real dictionary" button.
+          The assembled database is named `dictionary.db` (not `.sqlite`) specifically because
+          jeep-sqlite's HTTP-import path picks its strategy from the URL's file extension and
+          only recognizes `.db`/`.zip` — see `scripts/assemble-sqlite.mjs`.
+  - [~] **`better-sqlite3` driver** for Mac/Electron, decided 2026-07-29: native driver runs in
         the Electron main process; the renderer-side half of the driver forwards `run()` calls
         over IPC and returns the results. Structurally the same pattern as the iOS driver above
         (native SQLite behind a bridge) — Electron's IPC standing in for the Capacitor plugin
         bridge. Only needs a minimal Electron main-process stub to build/test against here —
-        the full shell setup is Phase 3.
-  - [ ] Swapping the driver behind the interface should be the only platform-specific step;
-        confirm this by running the same query-layer test/harness against both drivers.
-- [ ] The dictionary DB (~164MB, ~62.7MB gzipped per PLAN-DICTIONARY-BUILD.md) ships inside
-      the native app already — bundling `dictionary.sqlite(.gz)` as an app asset and copying
-      it into the app's native local data directory (both platforms, via each driver's own
-      storage APIs) on first run avoids a redundant network fetch entirely. If a network fetch
-      is still wanted (e.g. to let the app ship without the dictionary and let it lag the
-      build pipeline), fetch `dictionary.sqlite.gz`, decompress it via
-      `DecompressionStream('gzip')`, and store the decompressed bytes via the active driver's
-      storage; on every launch after that, open it from local storage via the driver (no
-      re-fetch, no full-file memory load — pages are read from the persisted file as needed).
-      Either way, if local storage reports the file missing/empty, re-fetch/re-copy it — the
-      app should treat this as a normal "first launch" path, not an error state.
-- [ ] Query layer: pure logic built against the driver interface, callable and testable
-      (e.g. via the dev harness or unit tests) independent of any UI:
-  - [ ] **Tiered plain-text match**: exact match on reading/kanji/gloss, then prefix, then
+        the full shell setup is Phase 3. **The driver itself is done and tested 2026-07-29**
+        (`src/db/drivers/node-driver.js`, wrapping better-sqlite3 directly) — it's what the
+        Node half of the cross-driver test suite runs against. **Not done**: the minimal
+        Electron main-process/IPC stub this bullet also calls for — the driver has only been
+        exercised as a plain in-process Node module (via Vitest), not forwarded over real
+        Electron IPC. Left for whoever picks up Phase 3, since it needs an actual `electron`
+        dependency and main-process wiring that's otherwise out of scope for the engine/driver
+        work this phase is about.
+  - [x] Swapping the driver behind the interface should be the only platform-specific step;
+        confirm this by running the same query-layer test/harness against both drivers. Done
+        2026-07-29: `tests/shared/run-engine-suite.js` holds one set of test bodies (21 cases
+        covering every bullet below, plus the driver interface itself and the kanji/compounds/
+        sentence joins), run verbatim against the Node driver (`npm run test:node`, plain
+        Vitest) and the browser driver (`npm run test:browser`, Vitest's browser mode in a
+        real headless Chromium via Playwright) — both pass identically.
+- [ ] The dictionary DB (~164MB) ships inside the native app already — bundling `dictionary.db`
+      as an app asset and copying it into the app's native local data directory (both
+      platforms, via each driver's own storage APIs) on first run avoids a redundant network
+      fetch entirely. If a network fetch is still wanted later (e.g. to let the app ship
+      without the dictionary and let it lag the build pipeline), revisit gzipping it for
+      transfer and decompressing via `DecompressionStream('gzip')` before storing the bytes via
+      the active driver's storage — no such fetch path exists yet, so there's no gzip build
+      step today either. Either way, on every launch after first load, open it from local
+      storage via the driver (no re-fetch, no full-file memory load — pages are read from the
+      persisted file as needed), and if local storage reports the file missing/empty,
+      re-fetch/re-copy it — the app should treat this as a normal "first launch" path, not an
+      error state. **Not done —
+      this is real native-storage plumbing that needs Phase 3's actual iOS/Electron shells to
+      implement against.** The browser driver's `ensureDatabaseFromUrl` helper
+      (`src/db/drivers/browser-driver.js`) is a related but not equivalent mechanism (fetch
+      into `jeep-sqlite`'s IndexedDB-backed store, not "copy a bundled asset into the native
+      data directory") built for dev-harness use, not a substitute for this bullet.
+- [x] Query layer: pure logic built against the driver interface, callable and testable
+      (e.g. via the dev harness or unit tests) independent of any UI. Done 2026-07-29,
+      `src/db/queries/` — every sub-bullet below is implemented and covered by the
+      cross-driver test suite (`tests/shared/run-engine-suite.js`).
+  - [x] **Tiered plain-text match**: exact match on reading/kanji/gloss, then prefix, then
         substring, stopping as soon as a tier returns good hits. Within each tier, sort by
         the commonness score from Phase 0 (priority-tagged entries first, untagged last),
-        not by raw match order. **Note (verified against the built DB, 2026-07-29)**:
-        `search_fts` only indexes `reading` and `gloss` — the kanji headword
-        (`entry_kanji.text`) has a plain b-tree index, not FTS. Exact/prefix kanji lookups
-        can use that index, but substring and leading-wildcard kanji queries (e.g. `*る`)
-        need a full scan over the ~218K kanji rows via a separate, slower code path than
-        reading/gloss tiers use. Either accept that asymmetry or add kanji to the FTS table
-        in the build pipeline before relying on it here.
-  - [ ] **Wildcards**: if the query contains `?` or `*`, parse as an explicit pattern
+        not by raw match order. Implemented in `src/db/queries/search.js`. **Superseded note**
+        (originally added 2026-07-29 after verifying the built DB, superseded the same day
+        after implementing this bullet): the kanji-vs-FTS asymmetry described here no longer
+        applies — the query layer doesn't use `search_fts`/FTS5 for *any* field, kanji or
+        reading/gloss, per the FTS5-in-the-browser-driver finding written up above and in
+        `search.js`'s header comment. All three fields use the same `LIKE`-scan approach at
+        every tier now, so there's no asymmetry between them (they're uniformly not
+        index-accelerated for prefix/substring, beyond exact/prefix benefiting incidentally
+        from `entry_kanji`/`entry_readings`' plain b-tree indexes).
+  - [x] **Wildcards**: if the query contains `?` or `*`, parse as an explicit pattern
         (translated to a `LIKE`/`GLOB` query) and skip fuzzy correction. This also covers
-        starts-with (`食*`) and ends-with (`*る`) without separate UI.
-  - [ ] **Common vs. archaic/rare tagging**: entries whose senses are only tagged
+        starts-with (`食*`) and ends-with (`*る`) without separate UI. Implemented as
+        `wildcardToLikePattern` in `src/db/queries/search.js`.
+  - [x] **Common vs. archaic/rare tagging**: entries whose senses are only tagged
         `arch`/`obs`/`rare`/`obsc` get pushed lower within their tier and flagged in the
         result data (e.g. an `archaic`/`rare` field) so the UI phase can label them —
-        the engine decides the tier and flag, the UI decides how to display it.
-  - [ ] **Fuzzy/phonetically-similar kana, opt-in not automatic**: the main case isn't
+        the engine decides the tier and flag, the UI decides how to display it. Implemented in
+        `src/db/queries/entries.js` (`fetchEntriesByIds`), reusing the `is_archaic` column and
+        misc-tag subquery pattern `scripts/verify-db.mjs`'s example queries already established.
+  - [x] **Fuzzy/phonetically-similar kana, opt-in not automatic**: the main case isn't
         typos, it's a learner who heard a word spoken and typed what they *thought* they
         heard, mora by mora. Expose this as a separate query function the UI calls only on
         explicit request (not auto-triggered when results are thin), running an
@@ -131,15 +196,28 @@ driver implementations, which are the only pieces allowed to know which platform
         - **ん (moraic n) before another consonant**: it assimilates toward m/ng in natural
           speech, so what's spelled ん can get misheard/mistyped as one of those.
         Results from this pass are flagged as fuzzy matches in the returned data, separate
-        from direct tiered matches, so the UI can render them separately.
-  - [ ] **Verb/adjective deconjugation**: attempt to strip known conjugation endings (past,
+        from direct tiered matches, so the UI can render them separately. Implemented as a
+        weighted-edit-distance function (`weightedKanaDistance`) in `src/db/queries/fuzzy.js`,
+        exported standalone for unit testing without a database. Cheap-substitution costs cover
+        dakuten/handakuten pairs, chōon (both the katakana ー mark and native hiragana
+        vowel-repetition spelling, e.g. おばあさん), sokuon, and the near-homophone pairs
+        listed above. ん-before-consonant assimilation isn't its own rule: ん only ever matches
+        ん literally in typed text (nothing about how it's spoken changes its spelling), so
+        there was no extra substitution rule to add — it already gets ordinary equality.
+  - [x] **Verb/adjective deconjugation**: attempt to strip known conjugation endings (past,
         negative, te-form, potential, passive, causative, etc.) against the query and check
         if a plausible dictionary form exists via the driver. Return the base entry (if found)
         separately from direct matches, so the UI phase can render it as a banner
         ("食べた is the past tense of 食べる →") without the engine knowing about banners.
-  - [ ] **Kanji-count filter**: expose headword length filtering by the `kanji_count` column
+        Implemented in `src/db/queries/deconjugate.js`: ichidan (v1), godan (v5* with the full
+        onbin sound-change table for past/te-form), and i-adjective (adj-i) rules, each
+        candidate cross-checked against the entry's actual JMdict pos tag before being accepted
+        (not just "does this string exist anywhere") to keep noise down.
+  - [x] **Kanji-count filter**: expose headword length filtering by the `kanji_count` column
         as a query parameter (1 / 2 / 3 / 4+), a facet on top of the base query rather than
         part of the query string itself — the UI phase adds the chip row that drives it.
+        Implemented as the `kanjiCount` option on `search()` in `src/db/queries/search.js`
+        (4 means "4 or more", matching the "4+" chip).
 
 ## Phase 2 — Core dictionary UI
 
@@ -289,22 +367,31 @@ container for sync:
    summary. Test this in Xcode before committing to Phases 5-6 as designed. If it's blocked,
    alternatives to consider: a paid account (breaks the cost goal), or dropping cross-device
    sync down to manual export/import (e.g. share sheet with a JSON file) as a $0 fallback.
-3. Whether client-side deconjugation is worth the extra bundle cost, and which library
-   or ruleset to use if it is.
+3. ~~Whether client-side deconjugation is worth the extra bundle cost, and which library
+   or ruleset to use if it is.~~ — **decided/resolved 2026-07-29**: hand-rolled rule set, no
+   extra library — see `src/db/queries/deconjugate.js` and Phase 1 above. Zero added bundle
+   cost since it's pure JS string manipulation plus a DB lookup through the existing driver.
 4. ~~Mechanism for shipping a Mac build~~ — **decided 2026-07-29: Electron**, sharing the
    same `vite build` output as the Capacitor iOS shell. ~~Follow-on: whether Mac also uses a
    native SQLite driver~~ — **decided 2026-07-29: yes, on both platforms**, via a shared query
    layer sitting behind a small driver interface, with a native Capacitor SQLite plugin on iOS
    and `better-sqlite3`-over-IPC on Mac as the only platform-specific pieces, built and proven
    out on its own before any UI work (see Phase 1).
-5. Whether kanji-headword search stays on its current non-FTS code path (simpler, but a
+5. ~~Whether kanji-headword search stays on its current non-FTS code path (simpler, but a
    different performance profile than reading/gloss tiers) or gets added to the FTS index in
-   the build pipeline.
+   the build pipeline.~~ — **superseded 2026-07-29**: moot now that the whole Phase 1 query
+   layer avoids `search_fts`/FTS5 entirely, for every field, not just kanji — see the FTS5
+   finding under Phase 1's Capacitor SQLite driver bullet above. `search_fts` stays in the
+   build pipeline/schema unused for now; revisit as a native-only optimization later if
+   reading/gloss scan performance turns out to matter on-device (Node/Electron and iOS both
+   support FTS5 fine — only the browser dev-driver's `sql.js` build can't).
 
 ## Where to start
 
-Phase 0 is already represented in this repository via the build scripts and generated
-SQLite assets. The next priority is Phase 1: build the shared dictionary engine (query layer
-+ platform drivers) directly against the built database, with no UI involved yet. Phase 2
-wires the Vue app to that engine once it's solid. Cloud storage and sync work in Phases 5-6
-should wait until the core dictionary experience is working.
+Phase 0 (dictionary data prep) and Phase 1 (dictionary engine: query layer + platform
+drivers, proven out with no UI involved) are both represented in this repository now — see
+their sections above and [README-ENGINE.md](README-ENGINE.md) for what's done vs. still open
+within Phase 1 (the Electron IPC stub and native-storage bundling are deferred to Phase 3).
+The next priority is Phase 2: wire the Vue app's real UI to the query layer built in Phase 1.
+Cloud storage and sync work in Phases 5-6 should wait until the core dictionary experience is
+working.

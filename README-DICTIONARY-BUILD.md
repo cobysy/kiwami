@@ -14,7 +14,6 @@ The available steps are:
 - fetch-all: run the three fetch steps in sequence
 - entries, kanji, sentences, furigana, compounds: build the intermediate NDJSON artifacts
 - db: assemble the SQLite database from those artifacts
-- gzip: create public/dictionary.sqlite.gz
 - build-all: run the build stages in dependency order
 - all: run fetch-all followed by build-all
 
@@ -38,8 +37,9 @@ The build pipeline produces:
 
 - data/raw/...: fetched source files
 - data/build/...: intermediate NDJSON artifacts, including entries, kanji, sentences, furigana, and kanji_compounds
-- public/dictionary.sqlite: the assembled database used by the app
-- public/dictionary.sqlite.gz: a gzipped copy for distribution
+- public/dictionary.db: the assembled database used by the app (named `.db` rather than
+  `.sqlite` so jeep-sqlite's browser HTTP-import path, which switches on URL file
+  extension, can fetch it directly — see scripts/assemble-sqlite.mjs)
 
 ## Verification
 

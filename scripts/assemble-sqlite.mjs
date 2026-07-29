@@ -27,12 +27,17 @@
 // list. Revisit with a real source (e.g. KanjiVG stroke/component structural
 // similarity) before adding it back.
 //
-// Output: public/dictionary.sqlite — tracked in git (not gitignored like the
+// Output: public/dictionary.db — tracked in git (not gitignored like the
 // rest of data/build/), since rebuilding it needs network access to three
 // external hosts and takes a couple of minutes; committing it means a fresh
 // clone/machine doesn't need to run the fetch+build pipeline just to resume
 // dev. It also lives in public/ specifically because that's where Phase 1's
 // Vite app will need it — sql.js fetches it at runtime as a static asset.
+// Named `.db` rather than `.sqlite`: jeep-sqlite's HTTP-import path picks its
+// strategy from the URL's file extension and only recognizes `.db`/`.zip`
+// (see `ensureDatabaseFromUrl` in src/db/drivers/browser-driver.js), so this
+// is the name the dev harness's "load real dictionary" button needs — no
+// separate symlink/rename step required.
 
 import { createReadStream, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -42,7 +47,7 @@ import Database from 'better-sqlite3';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUILD_DIR = path.join(__dirname, '../data/build');
-const OUT_FILE = path.join(__dirname, '../public/dictionary.sqlite');
+const OUT_FILE = path.join(__dirname, '../public/dictionary.db');
 
 function readNdjson(file) {
   return createInterface({
