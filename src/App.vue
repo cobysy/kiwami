@@ -102,14 +102,14 @@ const selectedDialectLabel = computed(
 // Clicking a result card expands it in place to show its kanji breakdown
 // (stroke count + on'yomi/kun'yomi), Tatoeba example sentences (furigana
 // pre-baked at build time - see build-furigana.mjs), and, for verbs, a
-// conjugation panel. Only one card is expanded at a time; kanji and
+// conjugation panel. Any number of cards can be expanded at once; kanji and
 // sentences are fetched lazily on first expand, then cached by entry id for
 // the rest of the session so re-toggling the same card doesn't re-query the
 // DB. Conjugation is pure string logic (conjugate.js) - no fetch needed.
-const expandedId = ref(null);
+const expandedIds = ref(new Set());
 const sentenceCache = ref({}); // entryId -> { status: 'loading'|'ready'|'error', sentences: [] }
 const kanjiCache = ref({}); // entryId -> { status: 'loading'|'ready'|'error', kanji: [] }
-const showConjugation = ref(false);
+const conjugationOpenIds = ref(new Set());
 
 function sentencesFor(entryId) {
   return sentenceCache.value[entryId] ?? { status: 'idle', sentences: [] };
@@ -123,17 +123,21 @@ function conjugationFor(r) {
   return conjugate(r.kanji[0] ?? null, r.readings[0], r.pos);
 }
 
-function toggleConjugation() {
-  showConjugation.value = !showConjugation.value;
+function toggleConjugation(entryId) {
+  if (conjugationOpenIds.value.has(entryId)) {
+    conjugationOpenIds.value.delete(entryId);
+  } else {
+    conjugationOpenIds.value.add(entryId);
+  }
 }
 
 async function toggleExpand(entryId, headword) {
-  if (expandedId.value === entryId) {
-    expandedId.value = null;
+  if (expandedIds.value.has(entryId)) {
+    expandedIds.value.delete(entryId);
+    conjugationOpenIds.value.delete(entryId);
     return;
   }
-  expandedId.value = entryId;
-  showConjugation.value = false;
+  expandedIds.value.add(entryId);
 
   if (!sentenceCache.value[entryId]) {
     sentenceCache.value[entryId] = { status: 'loading', sentences: [] };
@@ -205,7 +209,7 @@ async function runSearch() {
     return;
   }
   hasSearched.value = true;
-  expandedId.value = null;
+  expandedIds.value.clear();
   const searchOptions = { kanjiCount: kanjiCount.value ?? undefined, dialect: dialect.value ?? undefined };
   const [searchResult, deconjResult] = await Promise.all([
     search(driver, effectiveQuery(), searchOptions),
@@ -221,7 +225,7 @@ async function runSearch() {
 
 async function runFuzzy() {
   showFuzzy.value = true;
-  expandedId.value = null;
+  expandedIds.value.clear();
   fuzzyResults.value = await fuzzySearch(driver, query.value);
 }
 
@@ -413,7 +417,7 @@ onMounted(() => {
             v-for="r in resultsView.main"
             :key="r.id"
             class="result-card"
-            :class="{ expanded: expandedId === r.id }"
+            :class="{ expanded: expandedIds.has(r.id) }"
             @click="toggleExpand(r.id, r.kanji.join(''))"
           >
             <div class="result-row">
@@ -424,7 +428,7 @@ onMounted(() => {
               <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
-            <div v-if="expandedId === r.id" class="detail-panel" @click.stop>
+            <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
               <div v-if="r.kanji.length" class="kanji-details">
                 <p class="detail-label">Kanji</p>
                 <p v-if="kanjiFor(r.id).status === 'loading'" class="detail-status">Loading kanji…</p>
@@ -440,10 +444,10 @@ onMounted(() => {
               </div>
 
               <div v-if="isVerb(r)" class="conjugate-section">
-                <button type="button" class="conjugate-btn" @click="toggleConjugation">
-                  {{ showConjugation ? 'Hide conjugation' : 'Conjugate ▾' }}
+                <button type="button" class="conjugate-btn" @click="toggleConjugation(r.id)">
+                  {{ conjugationOpenIds.has(r.id) ? 'Hide conjugation' : 'Conjugate ▾' }}
                 </button>
-                <ul v-if="showConjugation" class="conjugation-list">
+                <ul v-if="conjugationOpenIds.has(r.id)" class="conjugation-list">
                   <li v-for="f in conjugationFor(r)" :key="f.label" class="conjugation-row">
                     <span class="conj-label">{{ f.label }}</span>
                     <span class="conj-form"><span class="conj-stem">{{ f.stem }}</span><span class="conj-ending">{{ f.ending }}</span></span>
@@ -477,7 +481,7 @@ onMounted(() => {
               v-for="r in resultsView.archaic"
               :key="r.id"
               class="result-card archaic"
-              :class="{ expanded: expandedId === r.id }"
+              :class="{ expanded: expandedIds.has(r.id) }"
               @click="toggleExpand(r.id, r.kanji.join(''))"
             >
               <div class="result-row">
@@ -489,7 +493,7 @@ onMounted(() => {
                 <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
-              <div v-if="expandedId === r.id" class="detail-panel" @click.stop>
+              <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
                 <div v-if="r.kanji.length" class="kanji-details">
                   <p class="detail-label">Kanji</p>
                   <p v-if="kanjiFor(r.id).status === 'loading'" class="detail-status">Loading kanji…</p>
@@ -505,10 +509,10 @@ onMounted(() => {
                 </div>
 
                 <div v-if="isVerb(r)" class="conjugate-section">
-                  <button type="button" class="conjugate-btn" @click="toggleConjugation">
-                    {{ showConjugation ? 'Hide conjugation' : 'Conjugate ▾' }}
+                  <button type="button" class="conjugate-btn" @click="toggleConjugation(r.id)">
+                    {{ conjugationOpenIds.has(r.id) ? 'Hide conjugation' : 'Conjugate ▾' }}
                   </button>
-                  <ul v-if="showConjugation" class="conjugation-list">
+                  <ul v-if="conjugationOpenIds.has(r.id)" class="conjugation-list">
                     <li v-for="f in conjugationFor(r)" :key="f.label" class="conjugation-row">
                       <span class="conj-label">{{ f.label }}</span>
                       <span class="conj-form"><span class="conj-stem">{{ f.stem }}</span><span class="conj-ending">{{ f.ending }}</span></span>
@@ -547,7 +551,7 @@ onMounted(() => {
             v-for="r in fuzzyResultsView.main"
             :key="r.id"
             class="result-card"
-            :class="{ expanded: expandedId === r.id }"
+            :class="{ expanded: expandedIds.has(r.id) }"
             @click="toggleExpand(r.id, r.kanji.join(''))"
           >
             <div class="result-row">
@@ -557,7 +561,7 @@ onMounted(() => {
               <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
-            <div v-if="expandedId === r.id" class="detail-panel" @click.stop>
+            <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
               <div v-if="r.kanji.length" class="kanji-details">
                 <p class="detail-label">Kanji</p>
                 <p v-if="kanjiFor(r.id).status === 'loading'" class="detail-status">Loading kanji…</p>
@@ -573,10 +577,10 @@ onMounted(() => {
               </div>
 
               <div v-if="isVerb(r)" class="conjugate-section">
-                <button type="button" class="conjugate-btn" @click="toggleConjugation">
-                  {{ showConjugation ? 'Hide conjugation' : 'Conjugate ▾' }}
+                <button type="button" class="conjugate-btn" @click="toggleConjugation(r.id)">
+                  {{ conjugationOpenIds.has(r.id) ? 'Hide conjugation' : 'Conjugate ▾' }}
                 </button>
-                <ul v-if="showConjugation" class="conjugation-list">
+                <ul v-if="conjugationOpenIds.has(r.id)" class="conjugation-list">
                   <li v-for="f in conjugationFor(r)" :key="f.label" class="conjugation-row">
                     <span class="conj-label">{{ f.label }}</span>
                     <span class="conj-form"><span class="conj-stem">{{ f.stem }}</span><span class="conj-ending">{{ f.ending }}</span></span>
@@ -610,7 +614,7 @@ onMounted(() => {
               v-for="r in fuzzyResultsView.archaic"
               :key="r.id"
               class="result-card archaic"
-              :class="{ expanded: expandedId === r.id }"
+              :class="{ expanded: expandedIds.has(r.id) }"
               @click="toggleExpand(r.id, r.kanji.join(''))"
             >
               <div class="result-row">
@@ -620,7 +624,7 @@ onMounted(() => {
                 <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
-              <div v-if="expandedId === r.id" class="detail-panel" @click.stop>
+              <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
                 <div v-if="r.kanji.length" class="kanji-details">
                   <p class="detail-label">Kanji</p>
                   <p v-if="kanjiFor(r.id).status === 'loading'" class="detail-status">Loading kanji…</p>
@@ -636,10 +640,10 @@ onMounted(() => {
                 </div>
 
                 <div v-if="isVerb(r)" class="conjugate-section">
-                  <button type="button" class="conjugate-btn" @click="toggleConjugation">
-                    {{ showConjugation ? 'Hide conjugation' : 'Conjugate ▾' }}
+                  <button type="button" class="conjugate-btn" @click="toggleConjugation(r.id)">
+                    {{ conjugationOpenIds.has(r.id) ? 'Hide conjugation' : 'Conjugate ▾' }}
                   </button>
-                  <ul v-if="showConjugation" class="conjugation-list">
+                  <ul v-if="conjugationOpenIds.has(r.id)" class="conjugation-list">
                     <li v-for="f in conjugationFor(r)" :key="f.label" class="conjugation-row">
                       <span class="conj-label">{{ f.label }}</span>
                       <span class="conj-form"><span class="conj-stem">{{ f.stem }}</span><span class="conj-ending">{{ f.ending }}</span></span>
