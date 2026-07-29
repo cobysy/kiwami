@@ -12,8 +12,17 @@
 // actually has that exact text as a headword/reading *and* carries the verb
 // or adjective part-of-speech tag the rule implies — this is what keeps
 // "strip る, see if anything matches" from turning into noise.
+//
+// The suffix rules only cover regular ichidan/godan/i-adjective patterns —
+// they don't know する/来る are irregular, and don't handle longer auxiliary
+// chains. When they find nothing, kuromoji (see tokenizer.js) tokenizes the
+// query and offers its own basic_form guesses as a second pass, verified
+// against JMdict the same way but with a looser verb/adjective POS check
+// (kuromoji doesn't tell us which JMdict verb-class tag applies) and a
+// generic 'conjugated' relation instead of a specific one.
 import { toHiragana } from './kana.js';
 import { fetchEntriesByIds } from './entries.js';
+import { getTokenizer } from './tokenizer.js';
 
 // Godan (u-verb) consonant rows: dictionary-form ending kana -> its a-row
 // (used for negative/passive/causative stems) and e-row (potential stem).
@@ -112,6 +121,41 @@ async function findEntriesForCandidate(driver, candidate, posTags) {
   return rows.map((r) => r.id);
 }
 
+// Same shape as findEntriesForCandidate, but accepts any verb/adjective POS
+// tag rather than a specific list — used for kuromoji-derived candidates,
+// where we know the token was tagged as a verb (動詞) or adjective (形容詞)
+// but not which JMdict verb-class tag (v1/v5*/vk/vs-i/adj-i/...) applies.
+async function findEntriesForCandidateLoose(driver, candidate) {
+  const rows = await driver.all(
+    `SELECT DISTINCT e.id FROM entries e
+     LEFT JOIN entry_kanji ek ON ek.entry_id = e.id
+     LEFT JOIN entry_readings er ON er.entry_id = e.id
+     WHERE (ek.text = ? OR er.text = ?)
+       AND EXISTS (
+         SELECT 1 FROM entry_senses s, json_each(s.pos) p
+         WHERE s.entry_id = e.id AND (p.value LIKE 'v%' OR p.value LIKE 'adj%')
+       )`,
+    [candidate, candidate],
+  );
+  return rows.map((r) => r.id);
+}
+
+// Tokenizes the query and returns each verb/adjective token's dictionary
+// (basic) form as a candidate — kuromoji's IPADIC already knows irregulars
+// (する, 来る) and the full auxiliary chain, so this needs no rule table.
+async function kuromojiCandidates(query) {
+  const tokenizer = await getTokenizer();
+  const seen = new Set();
+  const out = [];
+  for (const token of tokenizer.tokenize(query)) {
+    if (token.pos !== '動詞' && token.pos !== '形容詞') continue;
+    if (seen.has(token.basic_form)) continue;
+    seen.add(token.basic_form);
+    out.push({ candidate: token.basic_form, relation: 'conjugated' });
+  }
+  return out;
+}
+
 /**
  * @param {import('../driver.js').DBDriver} driver
  * @param {string} queryText
@@ -123,13 +167,27 @@ export async function deconjugate(driver, queryText) {
 
   const matches = [];
   const seenEntryIds = new Set();
-  for (const { candidate, relation, pos } of candidatesFor(query)) {
-    if (candidate === query || candidate.length === 0) continue;
-    const entryIds = await findEntriesForCandidate(driver, candidate, pos);
+  function collect(relation, entryIds) {
     for (const id of entryIds) {
       if (seenEntryIds.has(id)) continue;
       seenEntryIds.add(id);
       matches.push({ id, relation });
+    }
+  }
+
+  for (const { candidate, relation, pos } of candidatesFor(query)) {
+    if (candidate === query || candidate.length === 0) continue;
+    collect(relation, await findEntriesForCandidate(driver, candidate, pos));
+  }
+
+  // Only fall back to kuromoji once the deterministic rules found nothing —
+  // they're cheap, precise about relation labels, and cover the common
+  // regular-conjugation cases, so there's no reason to pay for tokenization
+  // when they've already answered the query.
+  if (matches.length === 0) {
+    for (const { candidate, relation } of await kuromojiCandidates(query)) {
+      if (candidate === query || candidate.length === 0) continue;
+      collect(relation, await findEntriesForCandidateLoose(driver, candidate));
     }
   }
   if (matches.length === 0) return [];

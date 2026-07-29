@@ -17,7 +17,12 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   drivers will eventually swap in for.
 - [src/db/dictionary/](src/db/dictionary/): the platform-agnostic query layer — tiered plain-text
   match + wildcards (`search.js`), fuzzy kana matching (`fuzzy.js`), verb/adjective
-  deconjugation (`deconjugate.js`), and the shared entry-hydration helper (`entries.js`).
+  deconjugation (`deconjugate.js`, backed by a hand-rolled rule set plus a `kuromoji` tokenizer
+  fallback in `tokenizer.js`), and the shared entry-hydration helper (`entries.js`).
+  `kuromoji-gunzip-shim.cjs` and `browser-path-shim.cjs` aren't part of the query layer itself —
+  they're `resolve.alias` targets (wired in `vite.config.js`/`vitest.browser.config.js`) that
+  patch two bundler-incompatibilities in kuromoji's browser dictionary loader; see the findings
+  below.
 - [src/App.vue](src/App.vue): a minimal dev harness (not Phase 2's real UI) for exercising the
   query layer by hand in a browser tab.
 - [tests/](tests/): `tests/shared/run-dictionary-suite.js` holds the actual test bodies, run against
@@ -37,6 +42,10 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   headless Chromium via Playwright (`vitest`'s browser mode).
 - `npm run setup:wasm` — copies `sql.js`'s WASM binary to `public/assets/sql-wasm.wasm`, where
   the browser driver expects it. Runs automatically on `npm install` (`postinstall`).
+- `npm run setup:kuromoji` — copies `kuromoji`'s IPADIC dictionary files to
+  `public/assets/kuromoji-dict/`, where `tokenizer.js`'s deconjugation fallback expects them
+  (a filesystem dir in Node, a URL prefix in the browser). Runs automatically on `npm install`
+  (`postinstall`).
 - `npm run build:db -- db` — assembles `public/dictionary.db`, tracked in git (see
   `scripts/assemble-sqlite.mjs`). It's named `.db` rather than `.sqlite` specifically so the
   dev harness's "load real dictionary" button can fetch it via jeep-sqlite's HTTP-import path —
@@ -49,3 +58,18 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   WASM binary the glue can't instantiate. See `scripts/copy-sql-wasm.mjs`.
 - **The real 134MB `dictionary.db` loads fine in the browser driver** — fetch+import in well
   under a second locally, despite `sql.js` holding the whole database in WASM memory.
+- **kuromoji's browser dictionary loader needed two bundler-compat patches to run under
+  Vite/Rolldown.** (1) It requires `zlibjs/bin/gunzip.min.js` for decompression; zlibjs's
+  minified UMD wrapper reads top-level `this` to detect its host (real CJS bundlers call it with
+  `this` bound to `module.exports`), which is `undefined` under Vite/Rolldown's ESM-based
+  bundling ("Cannot use 'in' operator to search for 'Zlib' in undefined") — fixed by aliasing
+  that specifier to `kuromoji-gunzip-shim.cjs`, which uses `pako` instead (already in the tree
+  transitively via `jeep-sqlite` → `jszip`). (2) Vite's dev server (via `sirv`) serves any
+  `.gz`-suffixed static asset with `Content-Encoding: gzip`, which the browser decompresses
+  transparently before the app ever sees it — gunzipping that output again throws ("incorrect
+  header check"). Since we don't control whether a given static host (dev server vs.
+  Capacitor/Electron's production asset serving) does this, the shim checks the actual gzip
+  magic bytes (`1f 8b`) and only decompresses if they're still present. (3) Node's `path` module,
+  which the loader also calls (`path.join`), is externalized to an empty stub by Vite for the
+  browser — fixed by aliasing `path` to `browser-path-shim.cjs`, a one-function `join`
+  replacement (dict paths are always `/`-joined URLs, no drive letters or `..` to resolve).

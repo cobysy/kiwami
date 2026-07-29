@@ -198,7 +198,11 @@ driver implementations, which are the only pieces allowed to know which platform
         Implemented in `src/db/dictionary/deconjugate.js`: ichidan (v1), godan (v5* with the full
         onbin sound-change table for past/te-form), and i-adjective (adj-i) rules, each
         candidate cross-checked against the entry's actual JMdict pos tag before being accepted
-        (not just "does this string exist anywhere") to keep noise down.
+        (not just "does this string exist anywhere") to keep noise down. When those rules find
+        nothing, a kuromoji fallback (`src/db/dictionary/tokenizer.js`) tokenizes the query and
+        offers its own basic-form guess instead, catching irregulars (する, 来る) and longer
+        auxiliary chains the rules don't model — see open decision 3 below (this reopens and
+        supersedes that decision's earlier "no extra library" resolution).
   - [x] **Kanji-count filter**: expose headword length filtering by the `kanji_count` column
         as a query parameter (1 / 2 / 3 / 4+), a facet on top of the base query rather than
         part of the query string itself — the UI phase adds the chip row that drives it.
@@ -354,9 +358,23 @@ container for sync:
    alternatives to consider: a paid account (breaks the cost goal), or dropping cross-device
    sync down to manual export/import (e.g. share sheet with a JSON file) as a $0 fallback.
 3. ~~Whether client-side deconjugation is worth the extra bundle cost, and which library
-   or ruleset to use if it is.~~ — **decided/resolved 2026-07-29**: hand-rolled rule set, no
-   extra library — see `src/db/dictionary/deconjugate.js` and Phase 1 above. Zero added bundle
-   cost since it's pure JS string manipulation plus a DB lookup through the existing driver.
+   or ruleset to use if it is.~~ — **decided 2026-07-29, revised same day**: the hand-rolled
+   rule set stays as the primary path (fast, zero-dependency, precise relation labels — see
+   `src/db/dictionary/deconjugate.js`), but `kuromoji` is now a fallback for what it misses
+   (irregular verbs, longer auxiliary chains), tokenizing only when the rules find nothing.
+   This does add real, permanent weight that the original "zero added bundle cost" resolution
+   was explicitly avoiding: kuromoji's IPADIC dictionary files (~17MB uncompressed / ~3-4MB
+   gzipped, `public/assets/kuromoji-dict/`, copied by `npm run setup:kuromoji` — see
+   `scripts/copy-kuromoji-dict.mjs`) ship in the app bundle on both platforms so deconjugation
+   keeps working fully offline. Accepted as a deliberate tradeoff, not re-litigated further here.
+   Getting kuromoji's browser dictionary loader working under Vite/Rolldown took two
+   `resolve.alias` patches (a zlibjs UMD-wrapper incompatibility, and static-file-server gzip
+   `Content-Encoding` fighting with kuromoji's own gunzip step) — see README-DICTIONARY.md's
+   findings and `src/db/dictionary/kuromoji-gunzip-shim.cjs`/`browser-path-shim.cjs` for the
+   detail; both fixes are generic (not Chromium-specific), so nothing about them is expected to
+   behave differently under Capacitor's WKWebView on iOS, though that hasn't been verified on an
+   actual device/simulator yet — only Node and headless Chromium (via Playwright) have run this
+   in CI-equivalent tests so far.
 4. ~~Mechanism for shipping a Mac build~~ — **decided 2026-07-29: Electron**, sharing the
    same `vite build` output as the Capacitor iOS shell. ~~Follow-on: whether Mac also uses a
    native SQLite driver~~ — **decided 2026-07-29: yes, on both platforms**, via a shared query

@@ -174,6 +174,11 @@ export function runDictionarySuite(label, createDriver) {
         const results = await deconjugate(driver, '水');
         expect(results).toEqual([]);
       });
+
+      it('falls back to kuromoji for an irregular verb the suffix rules mistag (来た -> 来る, vk not v1)', async () => {
+        const results = await deconjugate(driver, '来た');
+        expect(results.some((r) => r.id === 1547720 && r.relation === 'conjugated')).toBe(true);
+      });
     });
 
     describe('kanji + compounds + sentence joins', () => {
