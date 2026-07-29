@@ -1,14 +1,15 @@
 <script setup>
 // Phase 1 dev harness (PLAN.md): "just enough to host the engine code and a
 // small dev harness for exercising queries without building UI yet." Not
-// Phase 2's real search UI — no routing, no entry/kanji detail views, no
-// styling system — and not itself how Phase 1 is verified: that's
-// tests/node/dictionary.test.js and tests/browser/dictionary.test.js, which
-// run the same query layer (src/dictionary) against the same browser
-// driver (jeep-sqlite) and the real public/dictionary.db under Playwright
-// (see README-DICTIONARY.md's findings on why that's fast enough
-// in-browser). This component is only a manual tool for eyeballing search
-// results by hand against that same real data.
+// Phase 2's real search UI — no routing, no entry/kanji detail views — and
+// not itself how Phase 1 is verified: that's tests/node/dictionary.test.js
+// and tests/browser/dictionary.test.js, which run the same query layer
+// (src/dictionary) against the same browser driver (jeep-sqlite) and the
+// real public/dictionary.db under Playwright (see README-DICTIONARY.md's
+// findings on why that's fast enough in-browser). This component is only a
+// manual tool for eyeballing search results by hand against that same real
+// data — the styling here is a usable dev-harness skin, not Phase 2's design
+// system.
 import { ref, computed, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-drivers/browser-sqlite-driver.js';
 import { search, fuzzySearch, deconjugate } from './dictionary/index.js';
@@ -25,6 +26,21 @@ function priorityTitle(tags) {
 const status = ref('idle');
 const errorMessage = ref('');
 
+const statusLabel = computed(() => ({
+  idle: 'Idle',
+  loading: 'Loading dictionary…',
+  ready: 'Ready',
+  error: 'Failed to load',
+}[status.value] ?? status.value));
+
+const MATCH_MODES = [
+  ['auto', 'Auto'],
+  ['startsWith', 'Starts with'],
+  ['endsWith', 'Ends with'],
+  ['contains', 'Contains'],
+];
+const KANJI_COUNTS = [1, 2, 3, 4];
+
 const query = ref('');
 const matchMode = ref('auto'); // 'auto' | 'startsWith' | 'endsWith' | 'contains'
 const kanjiCount = ref(null); // 1 | 2 | 3 | 4 | null
@@ -36,6 +52,7 @@ const results = ref([]);
 const fuzzyResults = ref([]);
 const showFuzzy = ref(false);
 const deconjugated = ref([]);
+const hasSearched = ref(false);
 
 // The engine returns archaic/obsolete/rare/obscure entries flagged, not
 // filtered out (PLAN.md: "the engine decides the tier and flag, the UI
@@ -56,6 +73,10 @@ function archaicView(list) {
 }
 const resultsView = computed(() => archaicView(results.value));
 const fuzzyResultsView = computed(() => archaicView(fuzzyResults.value));
+
+const selectedDialectLabel = computed(
+  () => DIALECT_OPTIONS.find(([t]) => t === dialect.value)?.[1] ?? null,
+);
 
 let driver = null;
 
@@ -96,6 +117,11 @@ function onPaste() {
   setTimeout(runSearch, 0);
 }
 
+function clearQuery() {
+  query.value = '';
+  runSearch();
+}
+
 async function runSearch() {
   const hasQuery = query.value.trim().length > 0;
   if (!driver || (!hasQuery && !dialect.value)) {
@@ -103,8 +129,10 @@ async function runSearch() {
     tier.value = null;
     interpretedQuery.value = null;
     deconjugated.value = [];
+    hasSearched.value = false;
     return;
   }
+  hasSearched.value = true;
   const searchOptions = { kanjiCount: kanjiCount.value ?? undefined, dialect: dialect.value ?? undefined };
   const [searchResult, deconjResult] = await Promise.all([
     search(driver, effectiveQuery(), searchOptions),
@@ -127,164 +155,929 @@ onMounted(loadRealDictionary);
 </script>
 
 <template>
-  <main style="font-family: sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem;">
-    <h1>Kiwami (極) — Phase 1 dev harness</h1>
-
-    <p>
-      <button type="button" @click="loadRealDictionary">Reload dictionary.db</button>
-      <span style="margin-left: 0.5rem;">status: {{ status }}</span>
-    </p>
-    <p v-if="errorMessage" style="color: crimson;">{{ errorMessage }}</p>
-
-    <p>
-      <input
-        v-model="query"
-        type="text"
-        placeholder="Search kanji, reading, or English gloss..."
-        style="width: 20rem;"
-        @keyup.enter="runSearch"
-        @paste="onPaste"
-      />
-      <button type="button" @click="runSearch" :disabled="status !== 'ready'">Search</button>
-      <span v-if="status !== 'ready'" style="margin-left: 0.5rem; color: #b58900;">
-        (dictionary still loading — search is disabled until status is "ready")
-      </span>
-    </p>
-    <p style="font-size: 0.85em; color: #555;">
-      Tip: use <code>?</code> for a single character and <code>*</code> for any number of
-      characters, e.g. <code>食*</code> or <code>*る</code>.
-    </p>
-    <p>
-      Match:
-      <label v-for="opt in [
-        ['auto', 'auto'],
-        ['startsWith', 'starts with'],
-        ['endsWith', 'ends with'],
-        ['contains', 'contains'],
-      ]" :key="opt[0]" style="margin-right: 0.5rem;">
-        <input type="radio" :value="opt[0]" v-model="matchMode" @change="runSearch" />
-        {{ opt[1] }}
-      </label>
-    </p>
-    <p>
-      Kanji count:
-      <label v-for="n in [1, 2, 3, 4]" :key="n" style="margin-right: 0.5rem;">
-        <input type="radio" :value="n" v-model="kanjiCount" @change="runSearch" />
-        {{ n === 4 ? '4+' : n }}
-      </label>
-      <label>
-        <input type="radio" :value="null" v-model="kanjiCount" @change="runSearch" />
-        any
-      </label>
-    </p>
-    <p>
-      Dialect:
-      <select v-model="dialect" @change="runSearch">
-        <option :value="null">any</option>
-        <option v-for="[tag, label] in DIALECT_OPTIONS" :key="tag" :value="tag">{{ label }}</option>
-      </select>
-      <span v-if="dialect && !query.trim()" style="font-size: 0.85em; color: #555;">
-        (browsing every entry tagged {{ DIALECT_OPTIONS.find(([t]) => t === dialect)?.[1] }})
-      </span>
-    </p>
-    <p>
-      <label>
-        <input type="checkbox" v-model="showArchaic" />
-        Show archaic/obsolete/rare matches
-        <span v-if="resultsView.archaic.length > 0">({{ resultsView.archaic.length }})</span>
-      </label>
-    </p>
-
-    <div v-if="deconjugated.length" style="background: #eef; padding: 0.5rem; margin: 1rem 0;">
-      <div v-for="d in deconjugated" :key="`${d.id}-${d.relation}`">
-        <strong>{{ d.surface }}</strong> is the {{ d.relation }} of
-        <strong>{{ d.kanji[0] ?? d.readings[0] }}</strong> ({{ d.glosses.join('; ') }}) →
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">極</span>
+        <div class="brand-text">
+          <h1>Kiwami</h1>
+          <span class="brand-sub">Japanese dictionary</span>
+        </div>
       </div>
+      <button
+        type="button"
+        class="icon-btn"
+        title="Reload dictionary.db"
+        :disabled="status === 'loading'"
+        @click="loadRealDictionary"
+      >
+        <svg
+          class="icon"
+          :class="{ spin: status === 'loading' }"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+          <path d="M21 3v6h-6" />
+        </svg>
+      </button>
+    </header>
+
+    <div class="status-row" :class="status">
+      <span class="status-dot"></span>
+      <span class="status-text">{{ statusLabel }}</span>
+      <span v-if="errorMessage" class="status-error">{{ errorMessage }}</span>
     </div>
 
-    <template v-if="!showFuzzy">
-      <p v-if="query">
-        <a href="#" @click.prevent="runFuzzy">Didn't find it? Try fuzzy search</a>
+    <main class="content">
+      <section class="search-card">
+        <div class="search-box">
+          <svg class="icon search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            v-model="query"
+            type="text"
+            inputmode="search"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="Search kanji, reading, or English gloss…"
+            @keyup.enter="runSearch"
+            @paste="onPaste"
+          />
+          <button v-if="query" type="button" class="clear-btn" title="Clear" @click="clearQuery">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+        <button type="button" class="search-btn" :disabled="status !== 'ready'" @click="runSearch">
+          Search
+        </button>
+      </section>
+
+      <p class="hint">
+        Tip: use <code>?</code> for a single character and <code>*</code> for any number of
+        characters, e.g. <code>食*</code> or <code>*る</code>.
       </p>
 
-      <p v-if="tier">
-        Tier: <strong>{{ tier }}</strong> — {{ resultsView.main.length }} result(s)
-        <span v-if="resultsView.archaic.length > 0 && !resultsView.allArchaic" style="color: #888;">
-          ({{ resultsView.archaic.length }} archaic/obsolete/rare in a separate block below{{ showArchaic ? '' : ', hidden' }})
-        </span>
-        <span v-if="interpretedQuery" style="font-size: 0.85em; color: #555;">
-          (interpreted romaji as {{ interpretedQuery }})
-        </span>
-      </p>
-      <ul>
-        <li v-for="r in resultsView.main" :key="r.id">
-          <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
-          <span v-if="r.kanji.length"> ({{ r.readings.join('、') }})</span>
-          <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
-          — {{ r.glosses.join('; ') }}
-          <span v-if="r.dialect.length" style="color: #888;">[{{ r.dialect.join(', ') }}]</span>
-          <span style="color: #aaa;" :title="priorityTitle(r.priority)">
-            score={{ r.commonness_score }}<template v-if="r.priority.length"> ({{ r.priority.join(', ') }})</template>
+      <section class="filters">
+        <div class="filter-group">
+          <span class="filter-label">Match</span>
+          <div class="segmented">
+            <button
+              v-for="[value, label] in MATCH_MODES"
+              :key="value"
+              type="button"
+              class="segment"
+              :class="{ active: matchMode === value }"
+              @click="matchMode = value; runSearch()"
+            >
+              {{ label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Kanji count</span>
+          <div class="segmented">
+            <button
+              v-for="n in KANJI_COUNTS"
+              :key="n"
+              type="button"
+              class="segment"
+              :class="{ active: kanjiCount === n }"
+              @click="kanjiCount = kanjiCount === n ? null : n; runSearch()"
+            >
+              {{ n === 4 ? '4+' : n }}
+            </button>
+            <button
+              type="button"
+              class="segment"
+              :class="{ active: kanjiCount === null }"
+              @click="kanjiCount = null; runSearch()"
+            >
+              Any
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Dialect</span>
+          <select v-model="dialect" class="select" @change="runSearch">
+            <option :value="null">Any dialect</option>
+            <option v-for="[tag, label] in DIALECT_OPTIONS" :key="tag" :value="tag">{{ label }}</option>
+          </select>
+          <span v-if="dialect && !query.trim()" class="filter-note">
+            Browsing every entry tagged {{ selectedDialectLabel }}
           </span>
-        </li>
-      </ul>
+        </div>
 
-      <div v-if="resultsView.archaic.length > 0 && (showArchaic || resultsView.allArchaic)">
-        <h3 style="color: #888;">
-          Archaic / obsolete / rare matches
-          <span v-if="resultsView.allArchaic" style="font-weight: normal;">(no other matches)</span>
+        <label class="switch-row">
+          <span class="switch">
+            <input type="checkbox" v-model="showArchaic" />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </span>
+          <span>
+            Show archaic / obsolete / rare
+            <span v-if="resultsView.archaic.length > 0" class="count-pill">{{ resultsView.archaic.length }}</span>
+          </span>
+        </label>
+      </section>
+
+      <section v-if="deconjugated.length" class="deconj-card">
+        <div v-for="d in deconjugated" :key="`${d.id}-${d.relation}`" class="deconj-row">
+          <span class="deconj-surface">{{ d.surface }}</span>
+          <span class="deconj-arrow">→</span>
+          <span class="deconj-relation">{{ d.relation }}</span>
+          <span class="deconj-arrow">of</span>
+          <span class="deconj-headword">{{ d.kanji[0] ?? d.readings[0] }}</span>
+          <span class="deconj-gloss">{{ d.glosses.join('; ') }}</span>
+        </div>
+      </section>
+
+      <template v-if="!showFuzzy">
+        <div v-if="tier" class="results-meta">
+          <span class="tier-pill" :class="`tier-${tier}`">{{ tier }}</span>
+          <span class="results-count">{{ resultsView.main.length }} result{{ resultsView.main.length === 1 ? '' : 's' }}</span>
+          <span v-if="resultsView.archaic.length > 0 && !resultsView.allArchaic" class="archaic-note">
+            {{ resultsView.archaic.length }} archaic/obsolete/rare{{ showArchaic ? '' : ' (hidden)' }}
+          </span>
+          <span v-if="interpretedQuery" class="interpreted-note">interpreted as {{ interpretedQuery }}</span>
+          <button v-if="query" type="button" class="fuzzy-link" @click="runFuzzy">Didn't find it? Try fuzzy search →</button>
+        </div>
+
+        <p v-else-if="hasSearched" class="empty-state">No matches yet — try a different query.</p>
+        <p v-else class="empty-state">Search a kanji, reading, or English gloss to get started.</p>
+
+        <ul v-if="resultsView.main.length" class="result-list">
+          <li v-for="r in resultsView.main" :key="r.id" class="result-card">
+            <div class="result-row">
+              <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
+              <span v-if="r.kanji.length" class="result-reading">{{ r.readings.join('、') }}</span>
+              <span v-for="p in r.pos" :key="p" class="tag tag-pos">{{ p }}</span>
+              <span v-for="d in r.dialect" :key="d" class="tag tag-dialect">{{ d }}</span>
+              <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
+            </div>
+            <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+          </li>
+        </ul>
+
+        <div v-if="resultsView.archaic.length > 0 && (showArchaic || resultsView.allArchaic)" class="archaic-block">
+          <h3 class="archaic-heading">
+            Archaic / obsolete / rare matches
+            <span v-if="resultsView.allArchaic" class="archaic-heading-sub">(no other matches)</span>
+          </h3>
+          <ul class="result-list">
+            <li v-for="r in resultsView.archaic" :key="r.id" class="result-card archaic">
+              <div class="result-row">
+                <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
+                <span v-if="r.kanji.length" class="result-reading">{{ r.readings.join('、') }}</span>
+                <span v-for="p in r.pos" :key="p" class="tag tag-pos">{{ p }}</span>
+                <span v-for="l in r.labels" :key="l" class="tag tag-label">{{ l }}</span>
+                <span v-for="d in r.dialect" :key="d" class="tag tag-dialect">{{ d }}</span>
+                <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
+              </div>
+              <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+            </li>
+          </ul>
+        </div>
+      </template>
+
+      <section v-if="showFuzzy" class="fuzzy-section">
+        <button type="button" class="back-link" @click="showFuzzy = false">← Back to search results</button>
+        <h3 class="fuzzy-heading">
+          Fuzzy matches
+          <span v-if="fuzzyResultsView.archaic.length > 0 && !fuzzyResultsView.allArchaic" class="archaic-heading-sub">
+            {{ fuzzyResultsView.archaic.length }} archaic/obsolete/rare{{ showArchaic ? '' : ', hidden' }}
+          </span>
         </h3>
-        <ul>
-          <li v-for="r in resultsView.archaic" :key="r.id">
-            <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
-            <span v-if="r.kanji.length"> ({{ r.readings.join('、') }})</span>
-            <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
-            — {{ r.glosses.join('; ') }}
-            <span style="color: #888;">[{{ r.labels.join(', ') }}]</span>
-            <span v-if="r.dialect.length" style="color: #888;">[{{ r.dialect.join(', ') }}]</span>
-            <span style="color: #aaa;" :title="priorityTitle(r.priority)">
-              score={{ r.commonness_score }}<template v-if="r.priority.length"> ({{ r.priority.join(', ') }})</template>
-            </span>
+        <ul class="result-list">
+          <li v-for="r in fuzzyResultsView.main" :key="r.id" class="result-card">
+            <div class="result-row">
+              <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
+              <span class="result-reading">{{ r.readings.join('、') }}</span>
+              <span v-for="p in r.pos" :key="p" class="tag tag-pos">{{ p }}</span>
+              <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
+            </div>
+            <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
           </li>
         </ul>
-      </div>
-    </template>
 
-    <div v-if="showFuzzy">
-      <p>
-        <a href="#" @click.prevent="showFuzzy = false">← Back to search results</a>
-      </p>
-      <h3>
-        Fuzzy matches
-        <span v-if="fuzzyResultsView.archaic.length > 0 && !fuzzyResultsView.allArchaic" style="color: #888; font-weight: normal;">
-          ({{ fuzzyResultsView.archaic.length }} archaic/obsolete/rare in a separate block below{{ showArchaic ? '' : ', hidden' }})
-        </span>
-      </h3>
-      <ul>
-        <li v-for="r in fuzzyResultsView.main" :key="r.id">
-          <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
-          ({{ r.readings.join('、') }})
-          <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
-          — {{ r.glosses.join('; ') }}
-          <span style="color: #aaa;"> distance={{ r.distance.toFixed(2) }}</span>
-        </li>
-      </ul>
-
-      <div v-if="fuzzyResultsView.archaic.length > 0 && (showArchaic || fuzzyResultsView.allArchaic)">
-        <h4 style="color: #888;">
-          Archaic / obsolete / rare matches
-          <span v-if="fuzzyResultsView.allArchaic" style="font-weight: normal;">(no other matches)</span>
-        </h4>
-        <ul>
-          <li v-for="r in fuzzyResultsView.archaic" :key="r.id">
-            <strong>{{ r.kanji.join('、') || r.readings.join('、') }}</strong>
-            ({{ r.readings.join('、') }})
-            <span v-if="r.pos.length"> [{{ r.pos.join(', ') }}]</span>
-            — {{ r.glosses.join('; ') }}
-            <span style="color: #aaa;"> distance={{ r.distance.toFixed(2) }}</span>
-          </li>
-        </ul>
-      </div>
-    </div>
-  </main>
+        <div v-if="fuzzyResultsView.archaic.length > 0 && (showArchaic || fuzzyResultsView.allArchaic)" class="archaic-block">
+          <h4 class="archaic-heading">
+            Archaic / obsolete / rare matches
+            <span v-if="fuzzyResultsView.allArchaic" class="archaic-heading-sub">(no other matches)</span>
+          </h4>
+          <ul class="result-list">
+            <li v-for="r in fuzzyResultsView.archaic" :key="r.id" class="result-card archaic">
+              <div class="result-row">
+                <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
+                <span class="result-reading">{{ r.readings.join('、') }}</span>
+                <span v-for="p in r.pos" :key="p" class="tag tag-pos">{{ p }}</span>
+                <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
+              </div>
+              <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+    </main>
+  </div>
 </template>
+
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0b0d12;
+  --bg-elevated: #10131a;
+  --surface: #151922;
+  --surface-hover: #1a1f2b;
+  --border: #242938;
+  --border-strong: #333a4d;
+  --text: #e9ebf2;
+  --text-muted: #9aa1b5;
+  --text-faint: #6b7284;
+  --accent: #7c8cff;
+  --accent-strong: #9aa6ff;
+  --accent-contrast: #0b0d12;
+  --danger: #ff7a7a;
+  --warning: #f2b64d;
+  --success: #4ade80;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --font-jp: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Noto Sans JP', sans-serif;
+}
+
+html, body {
+  background: var(--bg);
+  margin: 0;
+  height: 100%;
+}
+
+#app {
+  height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, var(--font-jp), sans-serif;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  display: flex;
+  flex-direction: column;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.brand-mark {
+  font-size: 1.6rem;
+  font-family: var(--font-jp);
+  line-height: 1;
+  background: linear-gradient(155deg, var(--accent-strong), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.brand-text h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.brand-sub {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.icon {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.icon.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.status-row.ready .status-dot { background: var(--success); }
+.status-row.loading .status-dot { background: var(--warning); animation: pulse 1.2s ease-in-out infinite; }
+.status-row.error .status-dot { background: var(--danger); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.status-error {
+  color: var(--danger);
+  margin-left: 0.25rem;
+}
+
+.content {
+  flex: 1;
+  max-width: 42rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.25rem 1.25rem 3rem;
+}
+
+.search-card {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.search-box {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0 0.75rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.search-icon {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.search-box input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 1rem;
+  padding: 0.75rem 0.5rem;
+  outline: none;
+  min-width: 0;
+  font-family: inherit;
+}
+
+.search-box input::placeholder {
+  color: var(--text-faint);
+}
+
+.clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.clear-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.clear-btn .icon {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.search-btn {
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 0 1.4rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: linear-gradient(155deg, var(--accent-strong), var(--accent));
+  color: var(--accent-contrast);
+  cursor: pointer;
+  transition: transform 0.1s ease, opacity 0.15s ease;
+}
+
+.search-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.search-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.hint code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.75rem;
+}
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.filter-label {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  min-width: 5.5rem;
+  flex-shrink: 0;
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.segment {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  min-height: 2rem;
+}
+
+.segment.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.segment:hover:not(.active) {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.select {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  min-height: 2rem;
+}
+
+.filter-note {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 2.4rem;
+  height: 1.4rem;
+  flex-shrink: 0;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.switch-track {
+  position: absolute;
+  inset: 0;
+  background: var(--border-strong);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+  pointer-events: none;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  background: var(--text);
+  transition: transform 0.15s ease;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(1rem);
+  background: var(--accent-contrast);
+}
+
+.count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--border-strong);
+  color: var(--text);
+  font-size: 0.68rem;
+  margin-left: 0.3rem;
+}
+
+.deconj-card {
+  margin-top: 1.25rem;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.deconj-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.deconj-surface {
+  font-weight: 700;
+  font-family: var(--font-jp);
+}
+
+.deconj-arrow {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+.deconj-relation {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.deconj-headword {
+  font-weight: 700;
+  font-family: var(--font-jp);
+}
+
+.deconj-gloss {
+  color: var(--text-muted);
+}
+
+.results-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.5rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.tier-pill {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--border-strong);
+  color: var(--text);
+}
+
+.archaic-note {
+  color: var(--text-faint);
+}
+
+.interpreted-note {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.fuzzy-link {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--accent-strong);
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 0.2rem 0;
+}
+
+.fuzzy-link:hover {
+  text-decoration: underline;
+}
+
+.empty-state {
+  margin-top: 2rem;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.9rem;
+}
+
+.result-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.result-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  padding: 0.4rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  transition: background 0.1s ease;
+}
+
+.result-card:first-child {
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.result-card:last-child {
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.result-card:only-child {
+  border-radius: var(--radius-sm);
+}
+
+.result-card:hover {
+  background: var(--surface-hover);
+}
+
+.result-card.archaic {
+  opacity: 0.75;
+}
+
+.result-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.result-headword {
+  font-family: var(--font-jp);
+  font-size: 0.98rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.result-reading {
+  font-family: var(--font-jp);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.tag {
+  font-size: 0.62rem;
+  line-height: 1.4;
+  padding: 0.03rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  white-space: nowrap;
+}
+
+.tag-dialect {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+}
+
+.tag-label {
+  color: var(--text-faint);
+}
+
+.result-gloss {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.score-badge {
+  margin-left: auto;
+  padding-left: 0.5rem;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  cursor: default;
+  white-space: nowrap;
+}
+
+.archaic-block {
+  margin-top: 1.5rem;
+}
+
+.archaic-heading {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.archaic-heading-sub {
+  font-weight: 400;
+  font-size: 0.78rem;
+}
+
+.fuzzy-section {
+  margin-top: 1.5rem;
+}
+
+.back-link {
+  border: none;
+  background: none;
+  color: var(--accent-strong);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.3rem 0;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
+.fuzzy-heading {
+  margin: 0.75rem 0 0;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .content {
+    padding: 1rem 1rem 3rem;
+  }
+  .search-card {
+    flex-direction: column;
+  }
+  .search-btn {
+    height: 2.75rem;
+  }
+  .filter-label {
+    min-width: auto;
+    width: 100%;
+  }
+}
+</style>
