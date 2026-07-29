@@ -1,7 +1,7 @@
 // npm run setup:wasm
 //
 // Copies sql.js's WASM binary to public/assets/sql-wasm.wasm, where
-// jeep-sqlite (the browser fallback used by src/db/drivers/browser-driver.js
+// jeep-sqlite (the browser fallback used by src/dictionary/sqlite-drivers/browser-sqlite-driver.js
 // via @capacitor-community/sqlite, see PLAN.md Phase 1) expects to find it
 // at runtime. Required after every `npm install` because it's a plain file
 // copy out of node_modules, not something bundlers resolve automatically —

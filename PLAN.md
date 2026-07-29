@@ -69,7 +69,7 @@ driver implementations, which are the only pieces allowed to know which platform
       `run(sql, params) → rows`, plus open/close) that all query logic is written against.
       This interface, and everything built on top of it, lives in the regular Vue codebase,
       not per-shell code — it must not know or care which driver is active underneath it.
-      Implemented 2026-07-29 as `open`/`exec`/`all`/`run`/`close` (`src/db/driver.js`) rather
+      Implemented 2026-07-29 as `open`/`exec`/`all`/`run`/`close` (`src/dictionary/sqlite-driver.js`) rather
       than the single `run` in the original example — both real backends already draw this
       same exec-vs-query-vs-mutate line internally (node:sqlite, the Capacitor SQLite
       plugin), so matching it avoids a driver-side heuristic guessing "is this DDL or a
@@ -85,7 +85,7 @@ driver implementations, which are the only pieces allowed to know which platform
         SQLite web component with its own persistence) specifically so the driver and the
         query layer above it can be developed and tested in a normal `vite dev` browser tab —
         no iPhone install needed until Phase 3/7's real on-device validation. **Browser dev
-        fallback done and tested 2026-07-29** (`src/db/drivers/browser-driver.js`, driven by
+        fallback done and tested 2026-07-29** (`src/dictionary/sqlite-drivers/browser-sqlite-driver.js`, driven by
         `@capacitor-community/sqlite`'s own JS API — the actual native iOS code path is
         untouched, so this should carry over unchanged, but that's unverified until Phase 3
         wires up a real Capacitor project and validates on-device/in-simulator). Real findings
@@ -108,7 +108,7 @@ driver implementations, which are the only pieces allowed to know which platform
         (native SQLite behind a bridge) — Electron's IPC standing in for the Capacitor plugin
         bridge. Only needs a minimal Electron main-process stub to build/test against here —
         the full shell setup is Phase 3. **The driver itself is done and tested 2026-07-29**
-        (`src/db/drivers/node-driver.js`, wrapping node:sqlite directly) — it's what the
+        (`src/dictionary/sqlite-drivers/node-sqlite-driver.js`, wrapping node:sqlite directly) — it's what the
         Node half of the cross-driver test suite runs against. **Not done**: the minimal
         Electron main-process/IPC stub this bullet also calls for — the driver has only been
         exercised as a plain in-process Node module (via Vitest), not forwarded over real
@@ -141,29 +141,29 @@ driver implementations, which are the only pieces allowed to know which platform
       error state. **Not done —
       this is real native-storage plumbing that needs Phase 3's actual iOS/Electron shells to
       implement against.** The browser driver's `ensureDatabaseFromUrl` helper
-      (`src/db/drivers/browser-driver.js`) is a related but not equivalent mechanism (fetch
+      (`src/dictionary/sqlite-drivers/browser-sqlite-driver.js`) is a related but not equivalent mechanism (fetch
       into `jeep-sqlite`'s IndexedDB-backed store, not "copy a bundled asset into the native
       data directory") built for dev-harness use, not a substitute for this bullet.
 - [x] Query layer: pure logic built against the driver interface, callable and testable
       (e.g. via the dev harness or unit tests) independent of any UI. Done 2026-07-29,
-      `src/db/dictionary/` — every sub-bullet below is implemented and covered by the
+      `src/dictionary/` — every sub-bullet below is implemented and covered by the
       cross-driver test suite (`tests/shared/run-dictionary-suite.js`).
   - [x] **Tiered plain-text match**: exact match on reading/kanji/gloss, then prefix, then
         substring, stopping as soon as a tier returns good hits. Within each tier, sort by
         the commonness score from Phase 0 (priority-tagged entries first, untagged last),
-        not by raw match order. Implemented in `src/db/dictionary/search.js`: kanji, reading, and
+        not by raw match order. Implemented in `src/dictionary/search.js`: kanji, reading, and
         gloss all use the same `LIKE`-scan approach at every tier, uniformly not
         index-accelerated for prefix/substring, beyond exact/prefix benefiting incidentally
         from `entry_kanji`/`entry_readings`' plain b-tree indexes.
   - [x] **Wildcards**: if the query contains `?` or `*`, parse as an explicit pattern
         (translated to a `LIKE`/`GLOB` query) and skip fuzzy correction. This also covers
         starts-with (`食*`) and ends-with (`*る`) without separate UI. Implemented as
-        `wildcardToLikePattern` in `src/db/dictionary/search.js`.
+        `wildcardToLikePattern` in `src/dictionary/search.js`.
   - [x] **Common vs. archaic/rare tagging**: entries whose senses are only tagged
         `arch`/`obs`/`rare`/`obsc` get pushed lower within their tier and flagged in the
         result data (e.g. an `archaic`/`rare` field) so the UI phase can label them —
         the engine decides the tier and flag, the UI decides how to display it. Implemented in
-        `src/db/dictionary/entries.js` (`fetchEntriesByIds`), reusing the `is_archaic` column and
+        `src/dictionary/dictionary-entries.js` (`fetchEntriesByIds`), reusing the `is_archaic` column and
         misc-tag subquery pattern `scripts/verify-db.mjs`'s example queries already established.
   - [x] **Fuzzy/phonetically-similar kana, opt-in not automatic**: the main case isn't
         typos, it's a learner who heard a word spoken and typed what they *thought* they
@@ -183,7 +183,7 @@ driver implementations, which are the only pieces allowed to know which platform
           speech, so what's spelled ん can get misheard/mistyped as one of those.
         Results from this pass are flagged as fuzzy matches in the returned data, separate
         from direct tiered matches, so the UI can render them separately. Implemented as a
-        weighted-edit-distance function (`weightedKanaDistance`) in `src/db/dictionary/fuzzy.js`,
+        weighted-edit-distance function (`weightedKanaDistance`) in `src/dictionary/fuzzy.js`,
         exported standalone for unit testing without a database. Cheap-substitution costs cover
         dakuten/handakuten pairs, chōon (both the katakana ー mark and native hiragana
         vowel-repetition spelling, e.g. おばあさん), sokuon, and the near-homophone pairs
@@ -195,18 +195,18 @@ driver implementations, which are the only pieces allowed to know which platform
         if a plausible dictionary form exists via the driver. Return the base entry (if found)
         separately from direct matches, so the UI phase can render it as a banner
         ("食べた is the past tense of 食べる →") without the engine knowing about banners.
-        Implemented in `src/db/dictionary/deconjugate.js`: ichidan (v1), godan (v5* with the full
+        Implemented in `src/dictionary/deconjugate.js`: ichidan (v1), godan (v5* with the full
         onbin sound-change table for past/te-form), and i-adjective (adj-i) rules, each
         candidate cross-checked against the entry's actual JMdict pos tag before being accepted
         (not just "does this string exist anywhere") to keep noise down. When those rules find
-        nothing, a kuromoji fallback (`src/db/dictionary/tokenizer.js`) tokenizes the query and
+        nothing, a kuromoji fallback (`src/dictionary/tokenizer.js`) tokenizes the query and
         offers its own basic-form guess instead, catching irregulars (する, 来る) and longer
         auxiliary chains the rules don't model — see open decision 3 below (this reopens and
         supersedes that decision's earlier "no extra library" resolution).
   - [x] **Kanji-count filter**: expose headword length filtering by the `kanji_count` column
         as a query parameter (1 / 2 / 3 / 4+), a facet on top of the base query rather than
         part of the query string itself — the UI phase adds the chip row that drives it.
-        Implemented as the `kanjiCount` option on `search()` in `src/db/dictionary/search.js`
+        Implemented as the `kanjiCount` option on `search()` in `src/dictionary/search.js`
         (4 means "4 or more", matching the "4+" chip).
 
 ## Phase 2 — Core dictionary UI
@@ -360,7 +360,7 @@ container for sync:
 3. ~~Whether client-side deconjugation is worth the extra bundle cost, and which library
    or ruleset to use if it is.~~ — **decided 2026-07-29, revised same day**: the hand-rolled
    rule set stays as the primary path (fast, zero-dependency, precise relation labels — see
-   `src/db/dictionary/deconjugate.js`), but `kuromoji` is now a fallback for what it misses
+   `src/dictionary/deconjugate.js`), but `kuromoji` is now a fallback for what it misses
    (irregular verbs, longer auxiliary chains), tokenizing only when the rules find nothing.
    This does add real, permanent weight that the original "zero added bundle cost" resolution
    was explicitly avoiding: kuromoji's IPADIC dictionary files (~17MB uncompressed / ~3-4MB
@@ -370,7 +370,7 @@ container for sync:
    Getting kuromoji's browser dictionary loader working under Vite/Rolldown took two
    `resolve.alias` patches (a zlibjs UMD-wrapper incompatibility, and static-file-server gzip
    `Content-Encoding` fighting with kuromoji's own gunzip step) — see README-DICTIONARY.md's
-   findings and `src/db/dictionary/kuromoji-gunzip-shim.cjs`/`browser-path-shim.cjs` for the
+   findings and `src/dictionary/kuromoji-gunzip-shim.cjs`/`browser-path-shim.cjs` for the
    detail; both fixes are generic (not Chromium-specific), so nothing about them is expected to
    behave differently under Capacitor's WKWebView on iOS, though that hasn't been verified on an
    actual device/simulator yet — only Node and headless Chromium (via Playwright) have run this

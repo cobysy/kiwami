@@ -2,10 +2,10 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { fileURLToPath } from 'node:url';
 
-// See src/db/dictionary/kuromoji-gunzip-shim.cjs and browser-path-shim.cjs
+// See src/dictionary/kuromoji-gunzip-shim.cjs and browser-path-shim.cjs
 // for why these aliases exist (same as vite.config.js).
-const kuromojiGunzipShim = fileURLToPath(new URL('./src/db/dictionary/kuromoji-gunzip-shim.cjs', import.meta.url));
-const browserPathShim = fileURLToPath(new URL('./src/db/dictionary/browser-path-shim.cjs', import.meta.url));
+const kuromojiGunzipShim = fileURLToPath(new URL('./src/dictionary/kuromoji-gunzip-shim.cjs', import.meta.url));
+const browserPathShim = fileURLToPath(new URL('./src/dictionary/browser-path-shim.cjs', import.meta.url));
 
 export default defineConfig({
   resolve: {

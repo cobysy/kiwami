@@ -2,7 +2,7 @@
 //
 // Sanity-checks public/dictionary.db after `npm run build:db -- all` (or `-- db`):
 // foreign key integrity, row counts per table, a substring search spot check
-// (kana reading + English gloss, mirroring src/db/dictionary/search.js's
+// (kana reading + English gloss, mirroring src/dictionary/search.js's
 // LIKE-scan), a full entry reconstruction, the kanji -> kanji_compounds join
 // (common-first ordering), the entry -> sentence -> furigana join, and the
 // meta/attribution rows.
@@ -139,7 +139,7 @@ const LABELS_SUBQUERY = `(
 ) AS labels`;
 
 runExample(
-  // Substring LIKE-scan, same approach src/db/dictionary/search.js uses on
+  // Substring LIKE-scan, same approach src/dictionary/search.js uses on
   // every driver. A plain substring match for "cat" also matches idioms
   // like "scaredy-cat" (an entry meaning "coward") — a correct match on the
   // indexed text, not a bug, but it shows why Phase 1's tiered matching

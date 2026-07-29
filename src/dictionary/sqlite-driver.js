@@ -1,7 +1,8 @@
 // Shared SQLite driver interface. Every platform backend (Node/Electron via
 // node:sqlite, iOS/browser-dev via the Capacitor SQLite plugin) implements
-// this exact shape; the query layer in `src/db/dictionary` is written only
-// against it and must not know which backend is active underneath.
+// this exact shape; the query layer alongside it in this folder (search.js,
+// fuzzy.js, deconjugate.js, ...) is written only against it and must not
+// know which backend is active underneath.
 //
 // Three methods instead of PLAN.md's single `run(sql, params) -> rows`
 // example: both real backends already draw this same line internally

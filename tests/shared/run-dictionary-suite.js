@@ -16,17 +16,17 @@
 // way scripts/verify-db.mjs's example queries pin to real entries like
 // 明白/id 1000220.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { assertDriver } from '../../src/db/driver.js';
-import { search, fuzzySearch, deconjugate } from '../../src/db/dictionary/index.js';
+import { assertDriver } from '../../src/dictionary/sqlite-driver.js';
+import { search, fuzzySearch, deconjugate } from '../../src/dictionary/index.js';
 
 /**
  * @param {string} label - shown in the describe block name (e.g. "node", "browser")
- * @param {() => Promise<import('../../src/db/driver.js').DBDriver>} createDriver - must
+ * @param {() => Promise<import('../../src/dictionary/sqlite-driver.js').DBDriver>} createDriver - must
  *   return an already-opened driver, read-only, pointed at the real dictionary.db.
  */
 export function runDictionarySuite(label, createDriver) {
   describe(`dictionary (${label} driver)`, () => {
-    /** @type {import('../../src/db/driver.js').DBDriver} */
+    /** @type {import('../../src/dictionary/sqlite-driver.js').DBDriver} */
     let driver;
 
     beforeAll(async () => {

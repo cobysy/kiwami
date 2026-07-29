@@ -11,7 +11,7 @@
 import kuromoji from 'kuromoji';
 
 const DIC_PATH = typeof window === 'undefined'
-  ? new URL('../../../public/assets/kuromoji-dict/', import.meta.url).pathname
+  ? new URL('../../public/assets/kuromoji-dict/', import.meta.url).pathname
   : '/assets/kuromoji-dict/';
 
 let tokenizerPromise = null;

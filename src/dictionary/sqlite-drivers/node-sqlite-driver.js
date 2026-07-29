@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 /**
  * @param {string} filePath - path to the SQLite file, or ':memory:'
  * @param {{ readonly?: boolean }} [options]
- * @returns {import('../driver.js').DBDriver}
+ * @returns {import('../sqlite-driver.js').DBDriver}
  */
 export function createNodeDriver(filePath, options = {}) {
   const readonly = options.readonly ?? false;

@@ -4,16 +4,16 @@
 // Phase 2's real search UI — no routing, no entry/kanji detail views, no
 // styling system — and not itself how Phase 1 is verified: that's
 // tests/node/dictionary.test.js and tests/browser/dictionary.test.js, which
-// run the same query layer (src/db/dictionary) against the same browser
+// run the same query layer (src/dictionary) against the same browser
 // driver (jeep-sqlite) and the real public/dictionary.db under Playwright
 // (see README-DICTIONARY.md's findings on why that's fast enough
 // in-browser). This component is only a manual tool for eyeballing search
 // results by hand against that same real data.
 import { ref, computed, onMounted } from 'vue';
-import { createBrowserDriver, ensureDatabaseFromUrl } from './db/drivers/browser-driver.js';
-import { search, fuzzySearch, deconjugate } from './db/dictionary/index.js';
-import { DIALECT_OPTIONS } from './db/dictionary/dialect-labels.js';
-import { priorityLabel } from './db/dictionary/frequency-labels.js';
+import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-drivers/browser-sqlite-driver.js';
+import { search, fuzzySearch, deconjugate } from './dictionary/index.js';
+import { DIALECT_OPTIONS } from './dictionary/dialect-labels.js';
+import { priorityLabel } from './dictionary/frequency-labels.js';
 
 // Tooltip text for a result's raw priority tags (news1, nf12, ...) - the
 // tags are meaningless on their own (especially nfXX bands), so the visible
@@ -203,6 +203,10 @@ onMounted(loadRealDictionary);
     </div>
 
     <template v-if="!showFuzzy">
+      <p v-if="query">
+        <a href="#" @click.prevent="runFuzzy">Didn't find it? Try fuzzy search</a>
+      </p>
+
       <p v-if="tier">
         Tier: <strong>{{ tier }}</strong> — {{ resultsView.main.length }} result(s)
         <span v-if="resultsView.archaic.length > 0 && !resultsView.allArchaic" style="color: #888;">
@@ -244,10 +248,6 @@ onMounted(loadRealDictionary);
           </li>
         </ul>
       </div>
-
-      <p v-if="query">
-        <a href="#" @click.prevent="runFuzzy">Didn't find it? Try fuzzy search</a>
-      </p>
     </template>
 
     <div v-if="showFuzzy">

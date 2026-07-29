@@ -21,7 +21,7 @@
 // (kuromoji doesn't tell us which JMdict verb-class tag applies) and a
 // generic 'conjugated' relation instead of a specific one.
 import { toHiragana } from './kana.js';
-import { fetchEntriesByIds } from './entries.js';
+import { fetchEntriesByIds } from './dictionary-entries.js';
 import { getTokenizer } from './tokenizer.js';
 
 // Godan (u-verb) consonant rows: dictionary-form ending kana -> its a-row
@@ -157,7 +157,7 @@ async function kuromojiCandidates(query) {
 }
 
 /**
- * @param {import('../driver.js').DBDriver} driver
+ * @param {import('./sqlite-driver.js').DBDriver} driver
  * @param {string} queryText
  * @returns {Promise<Array<object & { relation: string, surface: string }>>}
  */

@@ -32,7 +32,7 @@
 // Vite app will need it — sql.js fetches it at runtime as a static asset.
 // Named `.db` rather than `.sqlite`: jeep-sqlite's HTTP-import path picks its
 // strategy from the URL's file extension and only recognizes `.db`/`.zip`
-// (see `ensureDatabaseFromUrl` in src/db/drivers/browser-driver.js), so this
+// (see `ensureDatabaseFromUrl` in src/dictionary/sqlite-drivers/browser-sqlite-driver.js), so this
 // is the name the dev harness's "load real dictionary" button needs — no
 // separate symlink/rename step required.
 

@@ -16,7 +16,7 @@
 // entry_kanji/entry_readings/entry_glosses.text uniformly, so behavior is
 // identical across every driver (Phase 1's explicit goal — see PLAN.md open
 // decision 5).
-import { fetchEntriesByIds } from './entries.js';
+import { fetchEntriesByIds } from './dictionary-entries.js';
 import { romajiToHiragana } from './romaji.js';
 
 // entry_glosses has no dedicated equality/prefix index (see schema), so its
@@ -37,8 +37,8 @@ function kanjiCountClause(kanjiCount) {
 
 // Regional-dialect facet (entry_senses.dial, e.g. 'ksb' for Kansai-ben —
 // see dialect-labels.js). Unindexed json_each scan, same as LABELS_SUBQUERY
-// in entries.js, but dialect tags are rare enough (~600 of 250k+ senses)
-// that a full scan is cheap regardless.
+// in dictionary-entries.js, but dialect tags are rare enough (~600 of
+// 250k+ senses) that a full scan is cheap regardless.
 function dialectClause(dialect) {
   if (!dialect) return { clause: '', params: [] };
   return {
@@ -134,7 +134,7 @@ async function dialectEntryIds(driver, options) {
 }
 
 /**
- * @param {import('../driver.js').DBDriver} driver
+ * @param {import('./sqlite-driver.js').DBDriver} driver
  * @param {string} queryText
  * @param {{ kanjiCount?: 1|2|3|4, dialect?: string, limit?: number }} [options] -
  *   kanjiCount 4 means "4 or more", matching PLAN.md's "1 / 2 / 3 / 4+" chip
@@ -187,7 +187,7 @@ export async function search(driver, queryText, options = {}) {
   const exactIds = await tierEntryIds(driver, 'exact', texts, options);
   const prefixIds = await tierEntryIds(driver, 'prefix', texts, options);
   if (exactIds.size > 0 || prefixIds.size > 0) {
-    const limit = options.limit ?? 50;
+    const limit = options.limit ?? 100;
     const exactResults = await fetchEntriesByIds(driver, exactIds, { ...options, limit });
     const onlyPrefixIds = new Set([...prefixIds].filter((id) => !exactIds.has(id)));
     const remaining = limit - exactResults.length;

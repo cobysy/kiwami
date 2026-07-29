@@ -22,7 +22,7 @@ function ensureWebStore(sqlite) {
 /**
  * @param {string} database - logical database name (no extension, no path)
  * @param {{ readonly?: boolean }} [options]
- * @returns {import('../driver.js').DBDriver}
+ * @returns {import('../sqlite-driver.js').DBDriver}
  */
 export function createBrowserDriver(database, options = {}) {
   const readonly = options.readonly ?? false;

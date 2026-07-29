@@ -7,18 +7,19 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
 
 ## Layout
 
-- [src/db/driver.js](src/db/driver.js): the shared driver interface (`open`/`exec`/`all`/`run`/`close`)
-  every backend implements. The query layer is written only against this shape.
-- [src/db/drivers/node-driver.js](src/db/drivers/node-driver.js): node:sqlite, used by the
-  Node dev/test harness and (later) the Electron main process.
-- [src/db/drivers/browser-driver.js](src/db/drivers/browser-driver.js): the Capacitor SQLite
-  plugin's web fallback (`jeep-sqlite`, backed by `sql.js`/WASM), used for the `vite dev`
-  browser dev harness and browser test suite — the same web fallback the real iOS/Electron
-  drivers will eventually swap in for.
-- [src/db/dictionary/](src/db/dictionary/): the platform-agnostic query layer — tiered plain-text
-  match + wildcards (`search.js`), fuzzy kana matching (`fuzzy.js`), verb/adjective
+- [src/dictionary/sqlite-driver.js](src/dictionary/sqlite-driver.js): the shared SQLite driver
+  interface (`open`/`exec`/`all`/`run`/`close`) every backend implements. The query layer
+  alongside it is written only against this shape.
+- [src/dictionary/sqlite-drivers/node-sqlite-driver.js](src/dictionary/sqlite-drivers/node-sqlite-driver.js):
+  node:sqlite, used by the Node dev/test harness and (later) the Electron main process.
+- [src/dictionary/sqlite-drivers/browser-sqlite-driver.js](src/dictionary/sqlite-drivers/browser-sqlite-driver.js):
+  the Capacitor SQLite plugin's web fallback (`jeep-sqlite`, backed by `sql.js`/WASM), used
+  for the `vite dev` browser dev harness and browser test suite — the same web fallback the
+  real iOS/Electron drivers will eventually swap in for.
+- The rest of [src/dictionary/](src/dictionary/) is the platform-agnostic query layer — tiered
+  plain-text match + wildcards (`search.js`), fuzzy kana matching (`fuzzy.js`), verb/adjective
   deconjugation (`deconjugate.js`, backed by a hand-rolled rule set plus a `kuromoji` tokenizer
-  fallback in `tokenizer.js`), and the shared entry-hydration helper (`entries.js`).
+  fallback in `tokenizer.js`), and the shared entry-hydration helper (`dictionary-entries.js`).
   `kuromoji-gunzip-shim.cjs` and `browser-path-shim.cjs` aren't part of the query layer itself —
   they're `resolve.alias` targets (wired in `vite.config.js`/`vitest.browser.config.js`) that
   patch two bundler-incompatibilities in kuromoji's browser dictionary loader; see the findings
@@ -49,7 +50,7 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
 - `npm run build:db -- db` — assembles `public/dictionary.db`, tracked in git (see
   `scripts/assemble-sqlite.mjs`). It's named `.db` rather than `.sqlite` specifically so the
   dev harness's "load real dictionary" button can fetch it via jeep-sqlite's HTTP-import path —
-  see `ensureDatabaseFromUrl` in `browser-driver.js` for why the extension matters.
+  see `ensureDatabaseFromUrl` in `browser-sqlite-driver.js` for why the extension matters.
 
 ## Findings from building this (see PLAN.md for the full write-up)
 

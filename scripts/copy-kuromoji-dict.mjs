@@ -1,7 +1,7 @@
 // npm run setup:kuromoji
 //
 // Copies kuromoji's bundled IPADIC dictionary files to
-// public/assets/kuromoji-dict/, where src/db/dictionary/tokenizer.js expects
+// public/assets/kuromoji-dict/, where src/dictionary/tokenizer.js expects
 // to find them at runtime — kuromoji's own dictionary loader wants a
 // filesystem directory in Node and a URL prefix in the browser, so shipping
 // them under public/assets/ (same layout as sql-wasm.wasm, see

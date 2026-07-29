@@ -1,5 +1,5 @@
 import { defineCustomElements } from 'jeep-sqlite/loader';
-import { createBrowserDriver, ensureDatabaseFromUrl } from '../../src/db/drivers/browser-driver.js';
+import { createBrowserDriver, ensureDatabaseFromUrl } from '../../src/dictionary/sqlite-drivers/browser-sqlite-driver.js';
 import { runDictionarySuite } from '../shared/run-dictionary-suite.js';
 
 let jeepReady = null;

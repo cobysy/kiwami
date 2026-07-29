@@ -34,7 +34,7 @@ const PRIORITY_SUBQUERY = `(
 ) AS priority`;
 
 /**
- * @param {import('../driver.js').DBDriver} driver
+ * @param {import('./sqlite-driver.js').DBDriver} driver
  * @param {Iterable<number>} entryIds
  * @param {{ limit?: number }} [options]
  * @returns {Promise<Array<object>>}
@@ -42,7 +42,7 @@ const PRIORITY_SUBQUERY = `(
 export async function fetchEntriesByIds(driver, entryIds, options = {}) {
   const ids = [...new Set(entryIds)];
   if (ids.length === 0) return [];
-  const limit = options.limit ?? 50;
+  const limit = options.limit ?? 100;
 
   const placeholders = ids.map(() => '?').join(',');
   const rows = await driver.all(
