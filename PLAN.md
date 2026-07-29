@@ -101,7 +101,13 @@ driver implementations, which are the only pieces allowed to know which platform
           under Playwright — not a fixture standing in for it.
           The assembled database is named `dictionary.db` (not `.sqlite`) specifically because
           jeep-sqlite's HTTP-import path picks its strategy from the URL's file extension and
-          only recognizes `.db`/`.zip` — see `scripts/assemble-sqlite.mjs`.
+          only recognizes `.db`/`.zip` — see `scripts/assemble-sqlite.mjs`. **Updated
+          2026-07-29, the raw 134MB file itself no longer lives under `public/`**: the build
+          now writes it to `data/build/dictionary.db` (gitignored, an intermediate artifact)
+          and ships only `public/dictionary.db.zip` (~1/3 the size, `npm run build:db -- zip`,
+          `scripts/zip-db.mjs`) — the one file actually tracked in git and fetched at runtime
+          by `ensureDatabaseFromUrl`, which unzips it client-side via jeep-sqlite's native
+          `.zip` HTTP-import support, no app-side decompression code needed.
   - [~] **`node:sqlite` driver** for Mac/Electron, decided 2026-07-29: native driver runs in
         the Electron main process; the renderer-side half of the driver forwards `run()` calls
         over IPC and returns the results. Structurally the same pattern as the iOS driver above
@@ -122,29 +128,39 @@ driver implementations, which are the only pieces allowed to know which platform
         sentence joins), run verbatim against the Node driver (`npm run test:node`, plain
         Vitest) and the browser driver (`npm run test:browser`, Vitest's browser mode in a
         real headless Chromium via Playwright) — both pass identically. Runs against the real,
-        full `public/dictionary.db` (read-only) rather than a hand-picked fixture — every
+        full dictionary database (read-only) rather than a hand-picked fixture — every
         assertion is anchored to a real entry looked up directly against the data (same
         approach `verify-db.mjs`'s example queries use), and the real db is small enough to
         open instantly in the Node driver and load in well under a second in the browser
-        driver too.
-- [ ] The dictionary DB (~134MB) ships inside the native app already — bundling `dictionary.db`
-      as an app asset and copying it into the app's native local data directory (both
-      platforms, via each driver's own storage APIs) on first run avoids a redundant network
-      fetch entirely. If a network fetch is still wanted later (e.g. to let the app ship
-      without the dictionary and let it lag the build pipeline), the browser driver's
-      `ensureDatabaseFromUrl` path already does this — see the `.zip` transfer-compression note
-      below — but native storage APIs would need their own decompress-on-import step (e.g.
-      `DecompressionStream`), not yet built for the iOS/Electron drivers. Either way, on every
-      launch after first load, open it from local
-      storage via the driver (no re-fetch, no full-file memory load — pages are read from the
-      persisted file as needed), and if local storage reports the file missing/empty,
-      re-fetch/re-copy it — the app should treat this as a normal "first launch" path, not an
-      error state. **Not done —
-      this is real native-storage plumbing that needs Phase 3's actual iOS/Electron shells to
-      implement against.** The browser driver's `ensureDatabaseFromUrl` helper
-      (`src/dictionary/sqlite-drivers/browser-sqlite-driver.js`) is a related but not equivalent mechanism (fetch
-      into `jeep-sqlite`'s IndexedDB-backed store, not "copy a bundled asset into the native
-      data directory") built for dev-harness use, not a substitute for this bullet.
+        driver too. The Node driver reads `data/build/dictionary.db` (extracted on demand from
+        `public/dictionary.db.zip` via `ensureDictionaryDb()`, `scripts/unzip-db.mjs`); the
+        browser driver fetches `public/dictionary.db.zip` directly, matching how the app itself
+        loads it (see the size/path update on the Capacitor driver bullet above).
+- [ ] Ship the dictionary DB (134MB raw / ~49MB zipped) bundled inside the native app instead
+      of fetching it over the network — bundling `dictionary.db` as an app asset and copying
+      it into the app's native local data directory (both platforms, via each driver's own
+      storage APIs) on first run avoids a redundant network fetch entirely. **Not done — this
+      is real native-storage plumbing that needs Phase 3's actual iOS/Electron shells to
+      implement against**; neither project exists in the repo yet. On every launch after first
+      load, open it from local storage via the driver (no re-fetch, no full-file memory load —
+      pages are read from the persisted file as needed), and if local storage reports the file
+      missing/empty, re-fetch/re-copy it — the app should treat this as a normal "first
+      launch" path, not an error state.
+
+      **Where things actually stand today (updated 2026-07-30, corrects a stale cross-reference
+      to a ".zip transfer-compression note below" that no longer exists in this file):** the
+      web build (GitHub Pages / `vite dev`) already avoids a *redundant* fetch, but not a
+      network fetch entirely — `public/dictionary.db.zip` is a same-origin static asset that
+      ships as part of the built site (no external host, no separate CDN/download step), and
+      the browser driver's `ensureDatabaseFromUrl` (`src/dictionary/sqlite-drivers/browser-sqlite-driver.js`)
+      fetches it once into jeep-sqlite's IndexedDB-backed store and skips the fetch on every
+      later load (`isDatabase()` check), unzipping it client-side via jeep-sqlite's native
+      `.zip` HTTP-import support — no app-side decompression code needed. That's a real,
+      working "fetch once, then reuse local storage" path, just not this bullet's literal ask:
+      it's IndexedDB-backed browser storage being reused across page loads, not a bundled
+      native asset copied into the app's native data directory at install time, and native
+      storage APIs would still need their own decompress-on-import step (e.g.
+      `DecompressionStream`) that hasn't been built for the iOS/Electron drivers.
 - [x] Query layer: pure logic built against the driver interface, callable and testable
       (e.g. via the dev harness or unit tests) independent of any UI. Done 2026-07-29,
       `src/dictionary/` — every sub-bullet below is implemented and covered by the
