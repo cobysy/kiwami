@@ -156,12 +156,12 @@ async function toggleExpand(entryId, headword) {
 
 let driver = null;
 
-async function loadRealDictionary() {
+async function loadRealDictionary(force = false) {
   status.value = 'loading';
   errorMessage.value = '';
   try {
-    await ensureDatabaseFromUrl('dictionary', `${import.meta.env.BASE_URL}dictionary.db.zip`);
     await driver?.close();
+    await ensureDatabaseFromUrl('dictionary', `${import.meta.env.BASE_URL}dictionary.db.zip`, { force });
     driver = createBrowserDriver('dictionary', { readonly: true });
     await driver.open();
     status.value = 'ready';
@@ -262,7 +262,7 @@ onMounted(() => {
           class="icon-btn"
           title="Reload dictionary.db"
           :disabled="status === 'loading'"
-          @click="loadRealDictionary"
+          @click="loadRealDictionary(true)"
         >
           <svg
             class="icon"

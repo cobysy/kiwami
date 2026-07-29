@@ -70,14 +70,23 @@ export function createBrowserDriver(database, options = {}) {
  * (see scripts/assemble-sqlite.mjs). Checked with `isDatabase()`, which —
  * unlike `isDBExists()` — looks at the store directly instead of requiring
  * a connection to already be open.
+ *
+ * `force` deletes any existing IndexedDB copy first: without it, a schema
+ * change (e.g. a new table) ships a fresh `dictionary.db.zip` that browsers
+ * with an already-populated store silently never re-fetch, since `exists`
+ * is already true.
  * @param {string} database
  * @param {string} url
+ * @param {{ force?: boolean }} [options]
  */
-export async function ensureDatabaseFromUrl(database, url) {
+export async function ensureDatabaseFromUrl(database, url, options = {}) {
   const sqlite = new SQLiteConnection(CapacitorSQLite);
   await ensureWebStore(sqlite);
   const { result: exists } = await sqlite.isDatabase(database);
-  if (!exists) {
+  if (exists && options.force) {
+    await CapacitorSQLite.deleteDatabase({ database, readonly: false });
+  }
+  if (!exists || options.force) {
     await sqlite.getFromHTTPRequest(url, false);
   }
 }
