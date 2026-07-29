@@ -746,13 +746,32 @@ html, body {
 }
 
 .select {
+  appearance: none;
+  -webkit-appearance: none;
   border: 1px solid var(--border);
-  background: var(--bg-elevated);
+  background-color: var(--bg-elevated);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7284' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.55rem center;
+  background-size: 0.85rem;
   color: var(--text);
-  border-radius: var(--radius-sm);
-  padding: 0.4rem 0.6rem;
-  font-size: 0.85rem;
+  border-radius: 999px;
+  padding: 0.4rem 1.9rem 0.4rem 0.85rem;
+  font-size: 0.82rem;
   min-height: 2rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.select:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .filter-note {
@@ -852,7 +871,7 @@ html, body {
 }
 
 .deconj-surface {
-  font-weight: 700;
+  font-weight: 400;
   font-family: var(--font-jp);
 }
 
@@ -867,7 +886,7 @@ html, body {
 }
 
 .deconj-headword {
-  font-weight: 700;
+  font-weight: 400;
   font-family: var(--font-jp);
 }
 
@@ -977,7 +996,7 @@ html, body {
 .result-headword {
   font-family: var(--font-jp);
   font-size: 0.98rem;
-  font-weight: 700;
+  font-weight: 400;
   white-space: nowrap;
 }
 
