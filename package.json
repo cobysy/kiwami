@@ -14,7 +14,7 @@
     "setup:db": "node scripts/unzip-db.mjs",
     "dev": "vite",
     "build": "vite build",
-    "build:pages": "vite build --outDir docs && touch docs/.nojekyll",
+    "build:pages": "vite build --outDir docs --base /kiwami/ && touch docs/.nojekyll",
     "test": "npm run test:node && npm run test:browser",
     "test:node": "vitest run --config vitest.node.config.js",
     "test:browser": "vitest run --config vitest.browser.config.js",
