@@ -136,9 +136,11 @@ async function toggleExpand(entryId, headword) {
   if (expandedIds.value.has(entryId)) {
     expandedIds.value.delete(entryId);
     conjugationOpenIds.value.delete(entryId);
+    syncUrl();
     return;
   }
   expandedIds.value.add(entryId);
+  syncUrl();
 
   if (!sentenceCache.value[entryId]) {
     sentenceCache.value[entryId] = { status: 'loading', sentences: [] };
@@ -199,6 +201,23 @@ function clearQuery() {
   runSearch();
 }
 
+// Keeps the address bar in sync with the current search + open entry so a
+// copied link reproduces both (replaceState, not pushState - filter/expand
+// changes shouldn't spam browser history, just the shareable current view).
+function syncUrl() {
+  const params = new URLSearchParams();
+  const q = query.value.trim();
+  if (q) params.set('q', q);
+  if (matchMode.value !== 'auto') params.set('mode', matchMode.value);
+  if (kanjiCount.value) params.set('kanji', String(kanjiCount.value));
+  if (dialect.value) params.set('dialect', dialect.value);
+  if (showArchaic.value) params.set('archaic', '1');
+  if (expandedIds.value.size) params.set('entry', [...expandedIds.value].join(','));
+  const qs = params.toString();
+  const url = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+  window.history.replaceState(window.history.state, '', url);
+}
+
 async function runSearch() {
   const hasQuery = query.value.trim().length > 0;
   if (!driver || (!hasQuery && !dialect.value)) {
@@ -207,6 +226,7 @@ async function runSearch() {
     interpretedQuery.value = null;
     deconjugated.value = [];
     hasSearched.value = false;
+    syncUrl();
     return;
   }
   hasSearched.value = true;
@@ -223,19 +243,51 @@ async function runSearch() {
   showFuzzy.value = false;
   fuzzyResults.value = [];
   fuzzyInterpretedQuery.value = null;
+  syncUrl();
 }
 
 async function runFuzzy() {
   showFuzzy.value = true;
   expandedIds.value.clear();
+  syncUrl();
   const fuzzy = await fuzzySearch(driver, query.value);
   fuzzyResults.value = fuzzy;
   fuzzyInterpretedQuery.value = fuzzy.interpretedQuery ?? null;
 }
 
-onMounted(() => {
-  loadRealDictionary();
+// Mirror image of syncUrl(): applies a shared/copied link's params to the
+// search refs before the first search runs, and returns the entry ids to
+// re-open afterward (deferred since expandedIds isn't populated by a search
+// - it only exists once toggleExpand has fetched sentences/kanji for a row).
+function restoreFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('q')) query.value = params.get('q');
+  const mode = params.get('mode');
+  if (MATCH_MODES.some(([value]) => value === mode)) matchMode.value = mode;
+  const kanji = Number(params.get('kanji'));
+  if (KANJI_COUNTS.includes(kanji)) kanjiCount.value = kanji;
+  const dial = params.get('dialect');
+  if (dial) dialect.value = dial;
+  if (params.get('archaic') === '1') showArchaic.value = true;
+  return (params.get('entry') ?? '')
+    .split(',')
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+}
+
+onMounted(async () => {
+  const pendingEntryIds = restoreFromUrl();
+  await loadRealDictionary();
   searchInput.value?.focus();
+  if (status.value === 'ready' && (query.value.trim() || dialect.value)) {
+    await runSearch();
+    for (const entryId of pendingEntryIds) {
+      const r = results.value.find((row) => row.id === entryId);
+      if (!r) continue;
+      if (r.archaic) showArchaic.value = true;
+      await toggleExpand(r.id, r.kanji.join(''));
+    }
+  }
 });
 </script>
 
