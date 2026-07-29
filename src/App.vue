@@ -2,12 +2,12 @@
 // Phase 1 dev harness (PLAN.md): "just enough to host the engine code and a
 // small dev harness for exercising queries without building UI yet." Not
 // Phase 2's real search UI — no routing, no entry/kanji detail views, no
-// styling system. Runs the query layer (src/db/queries) against the browser
-// driver (jeep-sqlite), the same driver tests/browser/engine.test.js
-// exercises under Playwright.
+// styling system. Runs the query layer (src/db/dictionary) against the
+// browser driver (jeep-sqlite), the same driver
+// tests/browser/dictionary.test.js exercises under Playwright.
 import { ref, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './db/drivers/browser-driver.js';
-import { search, fuzzySearch, deconjugate } from './db/queries/index.js';
+import { search, fuzzySearch, deconjugate } from './db/dictionary/index.js';
 import { seedFixtureDb } from '../tests/fixtures/seed.js';
 
 const status = ref('idle');

@@ -115,7 +115,7 @@ driver implementations, which are the only pieces allowed to know which platform
         work this phase is about.
   - [x] Swapping the driver behind the interface should be the only platform-specific step;
         confirm this by running the same query-layer test/harness against both drivers. Done
-        2026-07-29: `tests/shared/run-engine-suite.js` holds one set of test bodies (21 cases
+        2026-07-29: `tests/shared/run-dictionary-suite.js` holds one set of test bodies (21 cases
         covering every bullet below, plus the driver interface itself and the kanji/compounds/
         sentence joins), run verbatim against the Node driver (`npm run test:node`, plain
         Vitest) and the browser driver (`npm run test:browser`, Vitest's browser mode in a
@@ -139,24 +139,24 @@ driver implementations, which are the only pieces allowed to know which platform
       data directory") built for dev-harness use, not a substitute for this bullet.
 - [x] Query layer: pure logic built against the driver interface, callable and testable
       (e.g. via the dev harness or unit tests) independent of any UI. Done 2026-07-29,
-      `src/db/queries/` — every sub-bullet below is implemented and covered by the
-      cross-driver test suite (`tests/shared/run-engine-suite.js`).
+      `src/db/dictionary/` — every sub-bullet below is implemented and covered by the
+      cross-driver test suite (`tests/shared/run-dictionary-suite.js`).
   - [x] **Tiered plain-text match**: exact match on reading/kanji/gloss, then prefix, then
         substring, stopping as soon as a tier returns good hits. Within each tier, sort by
         the commonness score from Phase 0 (priority-tagged entries first, untagged last),
-        not by raw match order. Implemented in `src/db/queries/search.js`: kanji, reading, and
+        not by raw match order. Implemented in `src/db/dictionary/search.js`: kanji, reading, and
         gloss all use the same `LIKE`-scan approach at every tier, uniformly not
         index-accelerated for prefix/substring, beyond exact/prefix benefiting incidentally
         from `entry_kanji`/`entry_readings`' plain b-tree indexes.
   - [x] **Wildcards**: if the query contains `?` or `*`, parse as an explicit pattern
         (translated to a `LIKE`/`GLOB` query) and skip fuzzy correction. This also covers
         starts-with (`食*`) and ends-with (`*る`) without separate UI. Implemented as
-        `wildcardToLikePattern` in `src/db/queries/search.js`.
+        `wildcardToLikePattern` in `src/db/dictionary/search.js`.
   - [x] **Common vs. archaic/rare tagging**: entries whose senses are only tagged
         `arch`/`obs`/`rare`/`obsc` get pushed lower within their tier and flagged in the
         result data (e.g. an `archaic`/`rare` field) so the UI phase can label them —
         the engine decides the tier and flag, the UI decides how to display it. Implemented in
-        `src/db/queries/entries.js` (`fetchEntriesByIds`), reusing the `is_archaic` column and
+        `src/db/dictionary/entries.js` (`fetchEntriesByIds`), reusing the `is_archaic` column and
         misc-tag subquery pattern `scripts/verify-db.mjs`'s example queries already established.
   - [x] **Fuzzy/phonetically-similar kana, opt-in not automatic**: the main case isn't
         typos, it's a learner who heard a word spoken and typed what they *thought* they
@@ -176,7 +176,7 @@ driver implementations, which are the only pieces allowed to know which platform
           speech, so what's spelled ん can get misheard/mistyped as one of those.
         Results from this pass are flagged as fuzzy matches in the returned data, separate
         from direct tiered matches, so the UI can render them separately. Implemented as a
-        weighted-edit-distance function (`weightedKanaDistance`) in `src/db/queries/fuzzy.js`,
+        weighted-edit-distance function (`weightedKanaDistance`) in `src/db/dictionary/fuzzy.js`,
         exported standalone for unit testing without a database. Cheap-substitution costs cover
         dakuten/handakuten pairs, chōon (both the katakana ー mark and native hiragana
         vowel-repetition spelling, e.g. おばあさん), sokuon, and the near-homophone pairs
@@ -188,14 +188,14 @@ driver implementations, which are the only pieces allowed to know which platform
         if a plausible dictionary form exists via the driver. Return the base entry (if found)
         separately from direct matches, so the UI phase can render it as a banner
         ("食べた is the past tense of 食べる →") without the engine knowing about banners.
-        Implemented in `src/db/queries/deconjugate.js`: ichidan (v1), godan (v5* with the full
+        Implemented in `src/db/dictionary/deconjugate.js`: ichidan (v1), godan (v5* with the full
         onbin sound-change table for past/te-form), and i-adjective (adj-i) rules, each
         candidate cross-checked against the entry's actual JMdict pos tag before being accepted
         (not just "does this string exist anywhere") to keep noise down.
   - [x] **Kanji-count filter**: expose headword length filtering by the `kanji_count` column
         as a query parameter (1 / 2 / 3 / 4+), a facet on top of the base query rather than
         part of the query string itself — the UI phase adds the chip row that drives it.
-        Implemented as the `kanjiCount` option on `search()` in `src/db/queries/search.js`
+        Implemented as the `kanjiCount` option on `search()` in `src/db/dictionary/search.js`
         (4 means "4 or more", matching the "4+" chip).
 
 ## Phase 2 — Core dictionary UI
@@ -348,7 +348,7 @@ container for sync:
    sync down to manual export/import (e.g. share sheet with a JSON file) as a $0 fallback.
 3. ~~Whether client-side deconjugation is worth the extra bundle cost, and which library
    or ruleset to use if it is.~~ — **decided/resolved 2026-07-29**: hand-rolled rule set, no
-   extra library — see `src/db/queries/deconjugate.js` and Phase 1 above. Zero added bundle
+   extra library — see `src/db/dictionary/deconjugate.js` and Phase 1 above. Zero added bundle
    cost since it's pure JS string manipulation plus a DB lookup through the existing driver.
 4. ~~Mechanism for shipping a Mac build~~ — **decided 2026-07-29: Electron**, sharing the
    same `vite build` output as the Capacitor iOS shell. ~~Follow-on: whether Mac also uses a

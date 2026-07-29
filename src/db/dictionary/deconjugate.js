@@ -12,7 +12,7 @@
 // actually has that exact text as a headword/reading *and* carries the verb
 // or adjective part-of-speech tag the rule implies — this is what keeps
 // "strip る, see if anything matches" from turning into noise.
-import { toHiragana } from '../lib/kana.js';
+import { toHiragana } from './kana.js';
 import { fetchEntriesByIds } from './entries.js';
 
 // Godan (u-verb) consonant rows: dictionary-form ending kana -> its a-row

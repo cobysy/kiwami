@@ -2,19 +2,19 @@
 // same test bodies run against both the Node (node:sqlite) and browser
 // (jeep-sqlite) drivers — proving PLAN.md Phase 1's requirement that
 // swapping the driver behind the shared interface is the only
-// platform-specific step. tests/node/engine.test.js and
-// tests/browser/engine.test.js each just call this with their own factory.
+// platform-specific step. tests/node/dictionary.test.js and
+// tests/browser/dictionary.test.js each just call this with their own factory.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { assertDriver } from '../../src/db/driver.js';
-import { search, fuzzySearch, deconjugate } from '../../src/db/queries/index.js';
+import { search, fuzzySearch, deconjugate } from '../../src/db/dictionary/index.js';
 import { seedFixtureDb } from '../fixtures/seed.js';
 
 /**
  * @param {string} label - shown in the describe block name (e.g. "node", "browser")
  * @param {() => Promise<import('../../src/db/driver.js').DBDriver>} createDriver
  */
-export function runEngineSuite(label, createDriver) {
-  describe(`dictionary engine (${label} driver)`, () => {
+export function runDictionarySuite(label, createDriver) {
+  describe(`dictionary (${label} driver)`, () => {
     /** @type {import('../../src/db/driver.js').DBDriver} */
     let driver;
 

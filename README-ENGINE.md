@@ -9,19 +9,19 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
 
 - [src/db/driver.js](src/db/driver.js): the shared driver interface (`open`/`exec`/`all`/`run`/`close`)
   every backend implements. The query layer is written only against this shape.
-- [src/db/drivers/node-driver.js](src/db/drivers/node-driver.js): better-sqlite3, used by the
+- [src/db/drivers/node-driver.js](src/db/drivers/node-driver.js): node:sqlite, used by the
   Node dev/test harness and (later) the Electron main process.
 - [src/db/drivers/browser-driver.js](src/db/drivers/browser-driver.js): the Capacitor SQLite
   plugin's web fallback (`jeep-sqlite`, backed by `sql.js`/WASM), used for the `vite dev`
   browser dev harness and browser test suite — the same web fallback the real iOS/Electron
   drivers will eventually swap in for.
-- [src/db/queries/](src/db/queries/): the platform-agnostic query layer — tiered plain-text
+- [src/db/dictionary/](src/db/dictionary/): the platform-agnostic query layer — tiered plain-text
   match + wildcards (`search.js`), fuzzy kana matching (`fuzzy.js`), verb/adjective
   deconjugation (`deconjugate.js`), and the shared entry-hydration helper (`entries.js`).
 - [src/App.vue](src/App.vue): a minimal dev harness (not Phase 2's real UI) for exercising the
   query layer by hand in a browser tab.
-- [tests/](tests/): `tests/shared/run-engine-suite.js` holds the actual test bodies, run against
-  both drivers via `tests/node/engine.test.js` and `tests/browser/engine.test.js`, proving the
+- [tests/](tests/): `tests/shared/run-dictionary-suite.js` holds the actual test bodies, run against
+  both drivers via `tests/node/dictionary.test.js` and `tests/browser/dictionary.test.js`, proving the
   same query layer behaves identically regardless of which driver is underneath. Seeded through
   a small handpicked fixture (`tests/fixtures/`), not the real 164MB dictionary — see
   `tests/fixtures/seed.js` for why.
@@ -31,7 +31,7 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
 - `npm run dev` — starts the Vite dev server (the dev harness at `src/App.vue`).
 - `npm run build` — production build (`vite build`).
 - `npm run test` — runs both suites below in sequence.
-- `npm run test:node` — engine test suite against the Node/better-sqlite3 driver.
+- `npm run test:node` — dictionary test suite against the Node/node:sqlite driver.
 - `npm run test:browser` — the same suite against the browser/jeep-sqlite driver, in a real
   headless Chromium via Playwright (`vitest`'s browser mode).
 - `npm run setup:wasm` — copies `sql.js`'s WASM binary to `public/assets/sql-wasm.wasm`, where

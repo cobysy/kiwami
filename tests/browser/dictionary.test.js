@@ -1,6 +1,6 @@
 import { defineCustomElements } from 'jeep-sqlite/loader';
 import { createBrowserDriver } from '../../src/db/drivers/browser-driver.js';
-import { runEngineSuite } from '../shared/run-engine-suite.js';
+import { runDictionarySuite } from '../shared/run-dictionary-suite.js';
 
 let jeepReady = null;
 function ensureJeepSqliteElement() {
@@ -18,7 +18,7 @@ function ensureJeepSqliteElement() {
 
 let dbCounter = 0;
 
-runEngineSuite('browser (jeep-sqlite)', async () => {
+runDictionarySuite('browser (jeep-sqlite)', async () => {
   await ensureJeepSqliteElement();
   dbCounter += 1;
   // Unique name per test run avoids colliding with IndexedDB state a
