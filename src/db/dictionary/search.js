@@ -6,13 +6,17 @@
 //   "Kanji-count filter: expose headword length filtering ... as a query
 //   parameter, a facet on top of the base query."
 //
+// Revised from that original "stop at the first non-empty tier" design:
+// exact and prefix are now always merged (see search() below) so an exact
+// hit like 白い doesn't hide a compound like 白いんげん豆 — real usage
+// showed that was surprising, not desirable. Substring still only runs
+// when exact+prefix are empty, since it's the expensive unindexed scan.
+//
 // Every tier uses the same LIKE-scan approach on
 // entry_kanji/entry_readings/entry_glosses.text uniformly, so behavior is
 // identical across every driver (Phase 1's explicit goal — see PLAN.md open
 // decision 5).
 import { fetchEntriesByIds } from './entries.js';
-
-const TIERS = ['exact', 'prefix', 'substring'];
 
 // entry_glosses has no dedicated equality/prefix index (see schema), so its
 // exact-tier lookup is done case-insensitively via LOWER() rather than the
@@ -97,11 +101,34 @@ export async function search(driver, queryText, options = {}) {
     return { tier: 'wildcard', results: await fetchEntriesByIds(driver, ids, options) };
   }
 
-  for (const tier of TIERS) {
-    const ids = await tierEntryIds(driver, tier, query, options.kanjiCount);
-    if (ids.size > 0) {
-      return { tier, results: await fetchEntriesByIds(driver, ids, options) };
-    }
+  // Exact and prefix are always merged (an exact hit like 白い shouldn't
+  // hide a compound like 白いんげん豆) rather than stopping at the first
+  // non-empty tier: prefix's `LIKE 'foo%'` still benefits from
+  // entry_kanji/entry_readings' plain b-tree indexes, so it's cheap enough
+  // to run on every query. Substring stays gated behind "nothing found
+  // yet" since it's the unindexed full-table `LIKE '%foo%'` scan.
+  //
+  // Exact hits get the full result-limit budget to themselves first, and
+  // prefix hits only fill whatever's left over — a short common word (e.g.
+  // 水) can have dozens of common compounds as prefix matches, which would
+  // otherwise crowd every exact hit but that one word out of the results
+  // entirely once both compete for the same capped list.
+  const exactIds = await tierEntryIds(driver, 'exact', query, options.kanjiCount);
+  const prefixIds = await tierEntryIds(driver, 'prefix', query, options.kanjiCount);
+  if (exactIds.size > 0 || prefixIds.size > 0) {
+    const limit = options.limit ?? 50;
+    const exactResults = await fetchEntriesByIds(driver, exactIds, { ...options, limit });
+    const onlyPrefixIds = new Set([...prefixIds].filter((id) => !exactIds.has(id)));
+    const remaining = limit - exactResults.length;
+    const prefixResults = remaining > 0
+      ? await fetchEntriesByIds(driver, onlyPrefixIds, { ...options, limit: remaining })
+      : [];
+    return {
+      tier: exactIds.size > 0 ? 'exact' : 'prefix',
+      results: [...exactResults, ...prefixResults],
+    };
   }
-  return { tier: 'substring', results: [] };
+
+  const substringIds = await tierEntryIds(driver, 'substring', query, options.kanjiCount);
+  return { tier: 'substring', results: await fetchEntriesByIds(driver, substringIds, options) };
 }

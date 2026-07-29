@@ -76,15 +76,20 @@ export function runDictionarySuite(label, createDriver) {
         expect(results.map((r) => r.id)).toContain(1358280);
       });
 
-      it('stops at the exact tier without falling through to prefix/substring', async () => {
+      it('reports the exact tier and still merges in prefix matches alongside it', async () => {
         // "水" has two real JMdict entries with that exact kanji headword
         // (1371260 "water", the common reading みず; 2153780 the rarer すい
-        // reading) — both are legitimate exact hits, proving the tier
-        // doesn't fall through past a non-empty exact match even when it
-        // isn't a single-entry one.
+        // reading) — both are legitimate exact hits, and both are
+        // guaranteed a slot ahead of any prefix match (see search()'s
+        // exact-gets-the-limit-first budgeting). It's also a prefix of
+        // dozens of common compounds (水道, 水泳, 水素, ...), which now
+        // merge in to fill the rest of the result budget instead of the
+        // tier stopping at exact alone.
         const { tier, results } = await search(driver, '水');
         expect(tier).toBe('exact');
-        expect(results.map((r) => r.id)).toEqual(expect.arrayContaining([1371260, 2153780]));
+        const ids = results.map((r) => r.id);
+        expect(ids).toEqual(expect.arrayContaining([1371260, 2153780]));
+        expect(results.length).toBeGreaterThan(2);
       });
 
       it('treats a query with * as a wildcard and skips fuzzy correction', async () => {
@@ -122,6 +127,34 @@ export function runDictionarySuite(label, createDriver) {
         expect(nonArchaic).toEqual([...nonArchaic].sort((a, b) => b - a));
         expect(results.at(-1).id).toBe(1886480);
         expect(results.at(-1).archaic).toBe(true);
+      });
+
+      it('surfaces compounds built on an exact match without a kanji-count filter', async () => {
+        // 白い (1474910, "white") is an exact hit; 白いんげん豆 (2831811,
+        // "white kidney bean") only shows up via the prefix tier. Before
+        // the exact+prefix merge, the exact hit alone made the tier stop,
+        // so 白いんげん豆 was invisible unless you separately filtered by
+        // kanji count — surprising, since nothing about "search for 白い"
+        // suggests you'd need to know its compound's kanji count in advance.
+        const { tier, results } = await search(driver, '白い');
+        expect(tier).toBe('exact');
+        const ids = results.map((r) => r.id);
+        expect(ids).toContain(1474910);
+        expect(ids).toContain(2831811);
+      });
+
+      it('summarizes part-of-speech tags into display categories', async () => {
+        // Anchors looked up directly against the real data, same as the
+        // archaic-labels test above: 食べる (1358280, ichidan verb) is
+        // verb-only, 大きい (1588880, adj-i) and 静か (1381820, adj-na) are
+        // single-category adjectives, and 勉強 (1512670) has both a plain
+        // noun sense and a suru-verb sense, so it should surface both.
+        expect((await search(driver, '食べる')).results[0].pos).toEqual(['verb']);
+        expect((await search(driver, '大きい')).results[0].pos).toEqual(['い-adj']);
+        expect((await search(driver, '静か')).results[0].pos).toEqual(['な-adj']);
+        const { results } = await search(driver, '勉強');
+        const benkyou = results.find((r) => r.id === 1512670);
+        expect(benkyou.pos).toEqual(['verb', 'noun']);
       });
 
       it('applies the kanji-count facet as an exact filter for 1-3', async () => {

@@ -1,8 +1,9 @@
 // Shared entry-hydration helper used by every query module: given a set of
 // `entries.id` values, fetch the full display data (headword/reading/gloss
-// lists, commonness, archaic flag + specific tag labels) sorted the way
-// PLAN.md's Phase 1 tiered-match spec describes — common-first within a
-// tier, archaic pushed down rather than filtered out.
+// lists, commonness, archaic flag + specific tag labels, part of speech)
+// sorted the way PLAN.md's Phase 1 tiered-match spec describes —
+// common-first within a tier, archaic pushed down rather than filtered out.
+import { summarizePos } from './pos-labels.js';
 
 // Pulls the archaic/rare/obsolete/obscure tags actually present on an
 // entry's senses (same pattern verify-db.mjs's example queries use), so
@@ -35,14 +36,16 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
   );
 
   for (const row of rows) {
-    const [kanji, readings, glosses] = await Promise.all([
+    const [kanji, readings, glosses, senses] = await Promise.all([
       driver.all('SELECT text FROM entry_kanji WHERE entry_id = ? ORDER BY ord', [row.id]),
       driver.all('SELECT text FROM entry_readings WHERE entry_id = ? ORDER BY ord', [row.id]),
       driver.all('SELECT text FROM entry_glosses WHERE entry_id = ? ORDER BY ord', [row.id]),
+      driver.all('SELECT pos FROM entry_senses WHERE entry_id = ? ORDER BY ord', [row.id]),
     ]);
     row.kanji = kanji.map((r) => r.text);
     row.readings = readings.map((r) => r.text);
     row.glosses = glosses.map((r) => r.text);
+    row.pos = summarizePos(senses.map((s) => JSON.parse(s.pos)));
     row.archaic = row.is_archaic === 1;
     row.labels = row.labels ? row.labels.split(',') : [];
     delete row.is_archaic;
