@@ -4,7 +4,9 @@ A Japanese smart dictionary to find a word from how it sounds.
 
 Kiwami is real and running today, under active development, a working dictionary you can search right now:
 
-<a href="https://cobysy.github.io/kiwami/"><img src="media/icon-macos-1024.svg" width="96" height="96" alt="Try Kiwami — Live Demo" /></a>
+<a href="https://cobysy.github.io/kiwami/"><img src="media/icon-macos-1024.png" width="96" height="96" alt="Try Kiwami — Live Demo" /></a>
+<br />
+**[cobysy.github.io/kiwami](https://cobysy.github.io/kiwami/)**
 
 - Deconjugation — type a conjugated verb (食べた) and it points you to the dictionary form (食べる)
 - Archaic/rare words labeled, not hidden
