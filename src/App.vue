@@ -12,7 +12,7 @@
 // system.
 import { ref, computed, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-drivers/browser-sqlite-driver.js';
-import { search, fuzzySearch, deconjugate } from './dictionary/index.js';
+import { search, fuzzySearch, deconjugate, fetchSentencesForEntry } from './dictionary/index.js';
 import { DIALECT_OPTIONS } from './dictionary/dialect-labels.js';
 import { priorityLabel } from './dictionary/frequency-labels.js';
 
@@ -87,6 +87,34 @@ const selectedDialectLabel = computed(
   () => DIALECT_OPTIONS.find(([t]) => t === dialect.value)?.[1] ?? null,
 );
 
+// Clicking a result card expands it in place to show Tatoeba example
+// sentences (furigana pre-baked at build time - see build-furigana.mjs).
+// Only one card is expanded at a time, and sentences are fetched lazily on
+// first expand, then cached by entry id for the rest of the session so
+// re-toggling the same card doesn't re-query the DB.
+const expandedId = ref(null);
+const sentenceCache = ref({}); // entryId -> { status: 'loading'|'ready'|'error', sentences: [] }
+
+function sentencesFor(entryId) {
+  return sentenceCache.value[entryId] ?? { status: 'idle', sentences: [] };
+}
+
+async function toggleExpand(entryId) {
+  if (expandedId.value === entryId) {
+    expandedId.value = null;
+    return;
+  }
+  expandedId.value = entryId;
+  if (sentenceCache.value[entryId]) return;
+  sentenceCache.value[entryId] = { status: 'loading', sentences: [] };
+  try {
+    const sentences = await fetchSentencesForEntry(driver, entryId);
+    sentenceCache.value[entryId] = { status: 'ready', sentences };
+  } catch {
+    sentenceCache.value[entryId] = { status: 'error', sentences: [] };
+  }
+}
+
 let driver = null;
 
 async function loadRealDictionary() {
@@ -142,6 +170,7 @@ async function runSearch() {
     return;
   }
   hasSearched.value = true;
+  expandedId.value = null;
   const searchOptions = { kanjiCount: kanjiCount.value ?? undefined, dialect: dialect.value ?? undefined };
   const [searchResult, deconjResult] = await Promise.all([
     search(driver, effectiveQuery(), searchOptions),
@@ -157,6 +186,7 @@ async function runSearch() {
 
 async function runFuzzy() {
   showFuzzy.value = true;
+  expandedId.value = null;
   fuzzyResults.value = await fuzzySearch(driver, query.value);
 }
 
@@ -327,7 +357,13 @@ onMounted(loadRealDictionary);
         <p v-else class="empty-state">Search a kanji, reading, or English gloss to get started.</p>
 
         <ul v-if="resultsView.main.length" class="result-list">
-          <li v-for="r in resultsView.main" :key="r.id" class="result-card">
+          <li
+            v-for="r in resultsView.main"
+            :key="r.id"
+            class="result-card"
+            :class="{ expanded: expandedId === r.id }"
+            @click="toggleExpand(r.id)"
+          >
             <div class="result-row">
               <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
               <span v-if="r.kanji.length" class="result-reading">{{ r.readings.join('、') }}</span>
@@ -336,6 +372,20 @@ onMounted(loadRealDictionary);
               <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+            <div v-if="expandedId === r.id" class="sentence-panel" @click.stop>
+              <p class="sentence-panel-label">Examples</p>
+              <p v-if="sentencesFor(r.id).status === 'loading'" class="sentence-status">Loading examples…</p>
+              <p v-else-if="sentencesFor(r.id).status === 'error'" class="sentence-status sentence-status-error">Couldn't load example sentences.</p>
+              <p v-else-if="sentencesFor(r.id).sentences.length === 0" class="sentence-status">No example sentences.</p>
+              <ul v-else class="sentence-list">
+                <li v-for="s in sentencesFor(r.id).sentences" :key="s.id" class="sentence-item">
+                  <p class="sentence-jp">
+                    <ruby v-for="(t, i) in s.furigana" :key="i">{{ t.surface }}<rt v-if="t.reading">{{ t.reading }}</rt></ruby>
+                  </p>
+                  <p class="sentence-en">{{ s.english }}</p>
+                </li>
+              </ul>
+            </div>
           </li>
         </ul>
 
@@ -345,7 +395,13 @@ onMounted(loadRealDictionary);
             <span v-if="resultsView.allArchaic" class="archaic-heading-sub">(no other matches)</span>
           </h3>
           <ul class="result-list">
-            <li v-for="r in resultsView.archaic" :key="r.id" class="result-card archaic">
+            <li
+              v-for="r in resultsView.archaic"
+              :key="r.id"
+              class="result-card archaic"
+              :class="{ expanded: expandedId === r.id }"
+              @click="toggleExpand(r.id)"
+            >
               <div class="result-row">
                 <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
                 <span v-if="r.kanji.length" class="result-reading">{{ r.readings.join('、') }}</span>
@@ -355,6 +411,20 @@ onMounted(loadRealDictionary);
                 <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+              <div v-if="expandedId === r.id" class="sentence-panel" @click.stop>
+                <p class="sentence-panel-label">Examples</p>
+                <p v-if="sentencesFor(r.id).status === 'loading'" class="sentence-status">Loading examples…</p>
+                <p v-else-if="sentencesFor(r.id).status === 'error'" class="sentence-status sentence-status-error">Couldn't load example sentences.</p>
+                <p v-else-if="sentencesFor(r.id).sentences.length === 0" class="sentence-status">No example sentences.</p>
+                <ul v-else class="sentence-list">
+                  <li v-for="s in sentencesFor(r.id).sentences" :key="s.id" class="sentence-item">
+                    <p class="sentence-jp">
+                      <ruby v-for="(t, i) in s.furigana" :key="i">{{ t.surface }}<rt v-if="t.reading">{{ t.reading }}</rt></ruby>
+                    </p>
+                    <p class="sentence-en">{{ s.english }}</p>
+                  </li>
+                </ul>
+              </div>
             </li>
           </ul>
         </div>
@@ -369,7 +439,13 @@ onMounted(loadRealDictionary);
           </span>
         </h3>
         <ul class="result-list">
-          <li v-for="r in fuzzyResultsView.main" :key="r.id" class="result-card">
+          <li
+            v-for="r in fuzzyResultsView.main"
+            :key="r.id"
+            class="result-card"
+            :class="{ expanded: expandedId === r.id }"
+            @click="toggleExpand(r.id)"
+          >
             <div class="result-row">
               <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
               <span class="result-reading">{{ r.readings.join('、') }}</span>
@@ -377,6 +453,20 @@ onMounted(loadRealDictionary);
               <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+            <div v-if="expandedId === r.id" class="sentence-panel" @click.stop>
+              <p class="sentence-panel-label">Examples</p>
+              <p v-if="sentencesFor(r.id).status === 'loading'" class="sentence-status">Loading examples…</p>
+              <p v-else-if="sentencesFor(r.id).status === 'error'" class="sentence-status sentence-status-error">Couldn't load example sentences.</p>
+              <p v-else-if="sentencesFor(r.id).sentences.length === 0" class="sentence-status">No example sentences.</p>
+              <ul v-else class="sentence-list">
+                <li v-for="s in sentencesFor(r.id).sentences" :key="s.id" class="sentence-item">
+                  <p class="sentence-jp">
+                    <ruby v-for="(t, i) in s.furigana" :key="i">{{ t.surface }}<rt v-if="t.reading">{{ t.reading }}</rt></ruby>
+                  </p>
+                  <p class="sentence-en">{{ s.english }}</p>
+                </li>
+              </ul>
+            </div>
           </li>
         </ul>
 
@@ -386,7 +476,13 @@ onMounted(loadRealDictionary);
             <span v-if="fuzzyResultsView.allArchaic" class="archaic-heading-sub">(no other matches)</span>
           </h4>
           <ul class="result-list">
-            <li v-for="r in fuzzyResultsView.archaic" :key="r.id" class="result-card archaic">
+            <li
+              v-for="r in fuzzyResultsView.archaic"
+              :key="r.id"
+              class="result-card archaic"
+              :class="{ expanded: expandedId === r.id }"
+              @click="toggleExpand(r.id)"
+            >
               <div class="result-row">
                 <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
                 <span class="result-reading">{{ r.readings.join('、') }}</span>
@@ -394,6 +490,20 @@ onMounted(loadRealDictionary);
                 <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+              <div v-if="expandedId === r.id" class="sentence-panel" @click.stop>
+                <p class="sentence-panel-label">Examples</p>
+                <p v-if="sentencesFor(r.id).status === 'loading'" class="sentence-status">Loading examples…</p>
+                <p v-else-if="sentencesFor(r.id).status === 'error'" class="sentence-status sentence-status-error">Couldn't load example sentences.</p>
+                <p v-else-if="sentencesFor(r.id).sentences.length === 0" class="sentence-status">No example sentences.</p>
+                <ul v-else class="sentence-list">
+                  <li v-for="s in sentencesFor(r.id).sentences" :key="s.id" class="sentence-item">
+                    <p class="sentence-jp">
+                      <ruby v-for="(t, i) in s.furigana" :key="i">{{ t.surface }}<rt v-if="t.reading">{{ t.reading }}</rt></ruby>
+                    </p>
+                    <p class="sentence-en">{{ s.english }}</p>
+                  </li>
+                </ul>
+              </div>
             </li>
           </ul>
         </div>
@@ -982,6 +1092,14 @@ html, body {
   background: var(--surface-hover);
 }
 
+.result-card {
+  cursor: pointer;
+}
+
+.result-card.expanded {
+  background: var(--surface-hover);
+}
+
 .result-card.archaic {
   opacity: 0.75;
 }
@@ -1046,6 +1164,73 @@ html, body {
   color: var(--text-faint);
   cursor: default;
   white-space: nowrap;
+}
+
+.sentence-panel {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+
+.sentence-panel-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sentence-status {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+.sentence-status-error {
+  color: var(--danger);
+}
+
+.sentence-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.sentence-item + .sentence-item {
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border);
+}
+
+.sentence-jp {
+  margin: 0;
+  font-family: var(--font-jp);
+  font-size: 0.85rem;
+  font-weight: 300;
+  color: var(--text-muted);
+  line-height: 2.1;
+}
+
+.sentence-jp ruby {
+  ruby-align: center;
+}
+
+.sentence-jp rt {
+  font-size: 0.62em;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.sentence-en {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-faint);
 }
 
 .archaic-block {
