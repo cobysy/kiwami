@@ -198,6 +198,28 @@ export function runDictionarySuite(label, createDriver) {
         expect(tier).toBeNull();
         expect(results).toEqual([]);
       });
+
+      it('converts a romaji query to kana for the kanji/reading tiers', async () => {
+        const { tier, results, interpretedQuery } = await search(driver, 'jibun');
+        expect(tier).toBe('exact');
+        expect(interpretedQuery).toBe('じぶん');
+        expect(results.map((r) => r.id)).toContain(1318610); // 自分/じぶん
+      });
+
+      it('does not let romaji conversion interfere with an English gloss search', async () => {
+        // "dog" isn't valid romaji on its own (see romaji.js: wanakana
+        // leaves the unmapped "g" in place), so this must stay a plain
+        // gloss search, same as before romaji support existed.
+        const { interpretedQuery, results } = await search(driver, 'dog');
+        expect(interpretedQuery).toBeUndefined();
+        expect(results.some((r) => r.glosses.includes('dog'))).toBe(true);
+      });
+
+      it('does not touch a multi-word English gloss phrase', async () => {
+        const { interpretedQuery, results } = await search(driver, 'personal grudge');
+        expect(interpretedQuery).toBeUndefined();
+        expect(results.map((r) => r.id)).toContain(1768210); // 私憤
+      });
     });
 
     describe('fuzzySearch()', () => {

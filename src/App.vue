@@ -31,6 +31,7 @@ const kanjiCount = ref(null); // 1 | 2 | 3 | 4 | null
 const dialect = ref(null); // JMdict dial tag (e.g. 'ksb') | null
 const showArchaic = ref(false);
 const tier = ref(null);
+const interpretedQuery = ref(null);
 const results = ref([]);
 const fuzzyResults = ref([]);
 const showFuzzy = ref(false);
@@ -100,6 +101,7 @@ async function runSearch() {
   if (!driver || (!hasQuery && !dialect.value)) {
     results.value = [];
     tier.value = null;
+    interpretedQuery.value = null;
     deconjugated.value = [];
     return;
   }
@@ -109,6 +111,7 @@ async function runSearch() {
     hasQuery ? deconjugate(driver, query.value) : Promise.resolve([]),
   ]);
   tier.value = searchResult.tier;
+  interpretedQuery.value = searchResult.interpretedQuery ?? null;
   results.value = searchResult.results;
   deconjugated.value = deconjResult;
   showFuzzy.value = false;
@@ -204,6 +207,9 @@ onMounted(loadRealDictionary);
         Tier: <strong>{{ tier }}</strong> — {{ resultsView.main.length }} result(s)
         <span v-if="resultsView.archaic.length > 0 && !resultsView.allArchaic" style="color: #888;">
           ({{ resultsView.archaic.length }} archaic/obsolete/rare in a separate block below{{ showArchaic ? '' : ', hidden' }})
+        </span>
+        <span v-if="interpretedQuery" style="font-size: 0.85em; color: #555;">
+          (interpreted romaji as {{ interpretedQuery }})
         </span>
       </p>
       <ul>

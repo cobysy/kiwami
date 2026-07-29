@@ -17,6 +17,7 @@
 // identical across every driver (Phase 1's explicit goal — see PLAN.md open
 // decision 5).
 import { fetchEntriesByIds } from './entries.js';
+import { romajiToHiragana } from './romaji.js';
 
 // entry_glosses has no dedicated equality/prefix index (see schema), so its
 // exact-tier lookup is done case-insensitively via LOWER() rather than the
@@ -75,20 +76,29 @@ function fieldQuery({ table, alias, column }, whereExpr, value, facet) {
   };
 }
 
-async function tierEntryIds(driver, tier, query, options) {
+// `texts.kanjiReading` and `texts.gloss` are usually the same string - they
+// only diverge when the query was typed in romaji (see search()), since a
+// romaji-converted kana query makes sense against kanji/reading text but
+// would corrupt a search over English glosses.
+async function tierEntryIds(driver, tier, texts, options) {
   const facet = facetClauses(options);
+  const { kanjiReading, gloss } = texts;
 
   if (tier === 'exact') {
     return collectIds(driver, [
-      fieldQuery(FIELDS[0], `${FIELDS[0].alias}.${FIELDS[0].column} = ?`, query, facet),
-      fieldQuery(FIELDS[1], `${FIELDS[1].alias}.${FIELDS[1].column} = ?`, query, facet),
-      fieldQuery(FIELDS[2], `LOWER(${FIELDS[2].alias}.${FIELDS[2].column}) = LOWER(?)`, query, facet),
+      fieldQuery(FIELDS[0], `${FIELDS[0].alias}.${FIELDS[0].column} = ?`, kanjiReading, facet),
+      fieldQuery(FIELDS[1], `${FIELDS[1].alias}.${FIELDS[1].column} = ?`, kanjiReading, facet),
+      fieldQuery(FIELDS[2], `LOWER(${FIELDS[2].alias}.${FIELDS[2].column}) = LOWER(?)`, gloss, facet),
     ]);
   }
 
-  const pattern = tier === 'prefix' ? `${query}%` : `%${query}%`;
-  return collectIds(driver, FIELDS.map((field) =>
-    fieldQuery(field, `${field.alias}.${field.column} LIKE ? ESCAPE '\\'`, pattern, facet)));
+  const kanjiReadingPattern = tier === 'prefix' ? `${kanjiReading}%` : `%${kanjiReading}%`;
+  const glossPattern = tier === 'prefix' ? `${gloss}%` : `%${gloss}%`;
+  return collectIds(driver, [
+    fieldQuery(FIELDS[0], `${FIELDS[0].alias}.${FIELDS[0].column} LIKE ? ESCAPE '\\'`, kanjiReadingPattern, facet),
+    fieldQuery(FIELDS[1], `${FIELDS[1].alias}.${FIELDS[1].column} LIKE ? ESCAPE '\\'`, kanjiReadingPattern, facet),
+    fieldQuery(FIELDS[2], `${FIELDS[2].alias}.${FIELDS[2].column} LIKE ? ESCAPE '\\'`, glossPattern, facet),
+  ]);
 }
 
 /** Translates a `?`/`*` wildcard query into a SQL LIKE pattern, escaping any literal `%`/`_`/`\`. */
@@ -129,7 +139,9 @@ async function dialectEntryIds(driver, options) {
  * @param {{ kanjiCount?: 1|2|3|4, dialect?: string, limit?: number }} [options] -
  *   kanjiCount 4 means "4 or more", matching PLAN.md's "1 / 2 / 3 / 4+" chip
  *   spec. dialect is a JMdict dial tag (e.g. 'ksb') - see dialect-labels.js.
- * @returns {Promise<{ tier: 'exact'|'prefix'|'substring'|'wildcard'|'dialect'|null, results: Array<object> }>}
+ * @returns {Promise<{ tier: 'exact'|'prefix'|'substring'|'wildcard'|'dialect'|null, results: Array<object>, interpretedQuery?: string }>} -
+ *   interpretedQuery is the romaji-to-kana conversion actually searched
+ *   with (e.g. "jibun" -> "じぶん"), present only when that happened.
  */
 export async function search(driver, queryText, options = {}) {
   const query = (queryText ?? '').trim();
@@ -148,6 +160,18 @@ export async function search(driver, queryText, options = {}) {
     return { tier: 'wildcard', results: await fetchEntriesByIds(driver, ids, options) };
   }
 
+  // A romaji query (e.g. "jibun") can't literally match kanji/reading text,
+  // only its kana conversion (じぶん) can - so kanji/reading tiers search
+  // that conversion when one exists, while glosses always keep searching
+  // the raw text (an English gloss query must never be run through a
+  // romaji->kana conversion). romajiToHiragana returns null for anything
+  // that isn't fully romaji (English words/phrases, wildcards), so this is
+  // a no-op - texts.kanjiReading just falls back to the raw query - for
+  // every query that isn't actually romaji.
+  const kanaQuery = romajiToHiragana(query);
+  const texts = { kanjiReading: kanaQuery ?? query, gloss: query };
+  const interpretedQuery = kanaQuery && kanaQuery !== query ? kanaQuery : undefined;
+
   // Exact and prefix are always merged (an exact hit like 白い shouldn't
   // hide a compound like 白いんげん豆) rather than stopping at the first
   // non-empty tier: prefix's `LIKE 'foo%'` still benefits from
@@ -160,8 +184,8 @@ export async function search(driver, queryText, options = {}) {
   // 水) can have dozens of common compounds as prefix matches, which would
   // otherwise crowd every exact hit but that one word out of the results
   // entirely once both compete for the same capped list.
-  const exactIds = await tierEntryIds(driver, 'exact', query, options);
-  const prefixIds = await tierEntryIds(driver, 'prefix', query, options);
+  const exactIds = await tierEntryIds(driver, 'exact', texts, options);
+  const prefixIds = await tierEntryIds(driver, 'prefix', texts, options);
   if (exactIds.size > 0 || prefixIds.size > 0) {
     const limit = options.limit ?? 50;
     const exactResults = await fetchEntriesByIds(driver, exactIds, { ...options, limit });
@@ -173,9 +197,10 @@ export async function search(driver, queryText, options = {}) {
     return {
       tier: exactIds.size > 0 ? 'exact' : 'prefix',
       results: [...exactResults, ...prefixResults],
+      interpretedQuery,
     };
   }
 
-  const substringIds = await tierEntryIds(driver, 'substring', query, options);
-  return { tier: 'substring', results: await fetchEntriesByIds(driver, substringIds, options) };
+  const substringIds = await tierEntryIds(driver, 'substring', texts, options);
+  return { tier: 'substring', results: await fetchEntriesByIds(driver, substringIds, options), interpretedQuery };
 }
