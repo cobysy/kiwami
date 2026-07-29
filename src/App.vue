@@ -62,6 +62,7 @@ const tier = ref(null);
 const interpretedQuery = ref(null);
 const results = ref([]);
 const fuzzyResults = ref([]);
+const fuzzyInterpretedQuery = ref(null);
 const showFuzzy = ref(false);
 const deconjugated = ref([]);
 const hasSearched = ref(false);
@@ -221,12 +222,15 @@ async function runSearch() {
   deconjugated.value = deconjResult;
   showFuzzy.value = false;
   fuzzyResults.value = [];
+  fuzzyInterpretedQuery.value = null;
 }
 
 async function runFuzzy() {
   showFuzzy.value = true;
   expandedIds.value.clear();
-  fuzzyResults.value = await fuzzySearch(driver, query.value);
+  const fuzzy = await fuzzySearch(driver, query.value);
+  fuzzyResults.value = fuzzy;
+  fuzzyInterpretedQuery.value = fuzzy.interpretedQuery ?? null;
 }
 
 onMounted(() => {
@@ -542,6 +546,7 @@ onMounted(() => {
         <button type="button" class="back-link" @click="showFuzzy = false">← Back to search results</button>
         <h3 class="fuzzy-heading">
           Fuzzy matches
+          <span v-if="fuzzyInterpretedQuery" class="interpreted-note">searched as {{ fuzzyInterpretedQuery }}</span>
           <span v-if="fuzzyResultsView.archaic.length > 0 && !fuzzyResultsView.allArchaic" class="archaic-heading-sub">
             {{ fuzzyResultsView.archaic.length }} archaic/obsolete/rare{{ showArchaic ? '' : ', hidden' }}
           </span>
