@@ -14,8 +14,3 @@ export function toHiragana(str) {
   }
   return out;
 }
-
-const KANJI_RE = /[一-鿿㐀-䶿]/;
-export function hasKanji(str) {
-  return KANJI_RE.test(str);
-}

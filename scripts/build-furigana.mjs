@@ -19,7 +19,8 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import kuromoji from 'kuromoji';
-import { toHiragana, hasKanji } from './lib/kana.mjs';
+import { toHiragana } from './lib/kana.mjs';
+import { hasKanji } from './lib/kanji.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUILD_DIR = path.join(__dirname, '../data/build');
