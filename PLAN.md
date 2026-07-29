@@ -20,7 +20,7 @@ See [PLAN-DICTIONARY-BUILD.md](PLAN-DICTIONARY-BUILD.md) for the dictionary data
 |---|---|
 | UI framework | Vue 3 + Vite |
 | Distribution | Same `vite build` output shared by both shells: Capacitor-based native shell for iPhone; Electron-based native shell for Mac (decided 2026-07-29 — Capacitor has no official macOS platform, see Phase 3). Optional later App Store/TestFlight distribution for iOS. |
-| Dictionary data | JMdict_e + Tatoeba example sentences, converted into a SQLite DB via the build pipeline; query layer uses a uniform `LIKE`-scan on every driver; loaded via each platform's driver (better-sqlite3 on Node/Electron, jeep-sqlite/sql.js in the browser, native SQLite on iOS) |
+| Dictionary data | JMdict_e + Tatoeba example sentences, converted into a SQLite DB via the build pipeline; query layer uses a uniform `LIKE`-scan on every driver; loaded via each platform's driver (node:sqlite on Node/Electron, jeep-sqlite/sql.js in the browser, native SQLite on iOS) |
 | Favourites/history storage | Local IndexedDB, synced as plain JSON objects |
 | Sync | iCloud container-based sync for Apple devices, no server in between, no device-to-device link |
 | Cost | $0 for local development and testing with free tools; no paid Apple Developer account is required for direct device builds and installs, no hosted backend required |
@@ -71,7 +71,7 @@ driver implementations, which are the only pieces allowed to know which platform
       not per-shell code — it must not know or care which driver is active underneath it.
       Implemented 2026-07-29 as `open`/`exec`/`all`/`run`/`close` (`src/db/driver.js`) rather
       than the single `run` in the original example — both real backends already draw this
-      same exec-vs-query-vs-mutate line internally (better-sqlite3, the Capacitor SQLite
+      same exec-vs-query-vs-mutate line internally (node:sqlite, the Capacitor SQLite
       plugin), so matching it avoids a driver-side heuristic guessing "is this DDL or a
       parameterized statement" from a SQL string.
   - [x] **Native Capacitor SQLite plugin driver** for iOS, decided 2026-07-29 (supersedes the
@@ -95,18 +95,20 @@ driver implementations, which are the only pieces allowed to know which platform
           version breaks jeep-sqlite's bundled JS glue's WASM ABI match.
         - The real 134MB `dictionary.db` loads and opens fine through this driver in
           practice — fetch+import well under a second locally, despite `sql.js` holding the
-          whole database in WASM memory. Verified via the dev harness's "load real dictionary"
-          button.
+          whole database in WASM memory. Verified both by the dev harness (`src/App.vue`,
+          which loads it on mount) and, more rigorously, by
+          `tests/browser/dictionary.test.js` running the full cross-driver suite against it
+          under Playwright — not a fixture standing in for it.
           The assembled database is named `dictionary.db` (not `.sqlite`) specifically because
           jeep-sqlite's HTTP-import path picks its strategy from the URL's file extension and
           only recognizes `.db`/`.zip` — see `scripts/assemble-sqlite.mjs`.
-  - [~] **`better-sqlite3` driver** for Mac/Electron, decided 2026-07-29: native driver runs in
+  - [~] **`node:sqlite` driver** for Mac/Electron, decided 2026-07-29: native driver runs in
         the Electron main process; the renderer-side half of the driver forwards `run()` calls
         over IPC and returns the results. Structurally the same pattern as the iOS driver above
         (native SQLite behind a bridge) — Electron's IPC standing in for the Capacitor plugin
         bridge. Only needs a minimal Electron main-process stub to build/test against here —
         the full shell setup is Phase 3. **The driver itself is done and tested 2026-07-29**
-        (`src/db/drivers/node-driver.js`, wrapping better-sqlite3 directly) — it's what the
+        (`src/db/drivers/node-driver.js`, wrapping node:sqlite directly) — it's what the
         Node half of the cross-driver test suite runs against. **Not done**: the minimal
         Electron main-process/IPC stub this bullet also calls for — the driver has only been
         exercised as a plain in-process Node module (via Vitest), not forwarded over real
@@ -119,8 +121,13 @@ driver implementations, which are the only pieces allowed to know which platform
         covering every bullet below, plus the driver interface itself and the kanji/compounds/
         sentence joins), run verbatim against the Node driver (`npm run test:node`, plain
         Vitest) and the browser driver (`npm run test:browser`, Vitest's browser mode in a
-        real headless Chromium via Playwright) — both pass identically.
-- [ ] The dictionary DB (~164MB) ships inside the native app already — bundling `dictionary.db`
+        real headless Chromium via Playwright) — both pass identically. Runs against the real,
+        full `public/dictionary.db` (read-only) rather than a hand-picked fixture — every
+        assertion is anchored to a real entry looked up directly against the data (same
+        approach `verify-db.mjs`'s example queries use), and the real db is small enough to
+        open instantly in the Node driver and load in well under a second in the browser
+        driver too.
+- [ ] The dictionary DB (~134MB) ships inside the native app already — bundling `dictionary.db`
       as an app asset and copying it into the app's native local data directory (both
       platforms, via each driver's own storage APIs) on first run avoids a redundant network
       fetch entirely. If a network fetch is still wanted later (e.g. to let the app ship
@@ -241,7 +248,7 @@ the engine split itself.
       "macOS" platform, only `ios`/`android`/`web`. Both shells point at the same `vite build`
       output (`webDir` for Capacitor, `BrowserWindow.loadFile` for Electron), so the Vue app
       itself is one codebase; only the native bridge layer differs per platform. Wire in the
-      full `better-sqlite3`-over-IPC driver from Phase 1 (replacing the Phase 1 stub main
+      full `node:sqlite`-over-IPC driver from Phase 1 (replacing the Phase 1 stub main
       process with the real Electron app).
 - [ ] App icons, splash/launch assets, and app metadata for both the Capacitor and Electron
       shells.
@@ -354,7 +361,7 @@ container for sync:
    same `vite build` output as the Capacitor iOS shell. ~~Follow-on: whether Mac also uses a
    native SQLite driver~~ — **decided 2026-07-29: yes, on both platforms**, via a shared query
    layer sitting behind a small driver interface, with a native Capacitor SQLite plugin on iOS
-   and `better-sqlite3`-over-IPC on Mac as the only platform-specific pieces, built and proven
+   and `node:sqlite`-over-IPC on Mac as the only platform-specific pieces, built and proven
    out on its own before any UI work (see Phase 1).
 5. ~~Whether kanji-headword search stays on its current linear-scan code path (simpler, but a
    different performance profile than reading/gloss tiers) or gets index-accelerated in the

@@ -2,11 +2,13 @@
 // Phase 1 dev harness (PLAN.md): "just enough to host the engine code and a
 // small dev harness for exercising queries without building UI yet." Not
 // Phase 2's real search UI — no routing, no entry/kanji detail views, no
-// styling system. Runs the query layer (src/db/dictionary) against the
-// browser driver (jeep-sqlite), the same driver
-// tests/browser/dictionary.test.js exercises under Playwright — both load
-// the real public/dictionary.db rather than a hand-picked fixture; see
-// README-DICTIONARY.md's findings on why that's fast enough in-browser.
+// styling system — and not itself how Phase 1 is verified: that's
+// tests/node/dictionary.test.js and tests/browser/dictionary.test.js, which
+// run the same query layer (src/db/dictionary) against the same browser
+// driver (jeep-sqlite) and the real public/dictionary.db under Playwright
+// (see README-DICTIONARY.md's findings on why that's fast enough
+// in-browser). This component is only a manual tool for eyeballing search
+// results by hand against that same real data.
 import { ref, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './db/drivers/browser-driver.js';
 import { search, fuzzySearch, deconjugate } from './db/dictionary/index.js';
