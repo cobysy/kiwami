@@ -12,7 +12,7 @@
 // system.
 import { ref, computed, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-drivers/browser-sqlite-driver.js';
-import { search, fuzzySearch, deconjugate, fetchSentencesForEntry } from './dictionary/index.js';
+import { search, fuzzySearch, deconjugate, fetchSentencesForEntry, fetchKanjiDetails, conjugate } from './dictionary/index.js';
 import { DIALECT_OPTIONS } from './dictionary/dialect-labels.js';
 import { priorityLabel } from './dictionary/frequency-labels.js';
 
@@ -40,6 +40,16 @@ const MATCH_MODES = [
   ['contains', 'Contains'],
 ];
 const KANJI_COUNTS = [1, 2, 3, 4];
+
+// JMdict pos tags that identify a conjugatable verb entry - see conjugate.js
+// for why bare 'vs' (a noun that merely *can* take する) is excluded.
+const VERB_POS = new Set([
+  'v1', 'v5u', 'v5k', 'v5g', 'v5s', 'v5t', 'v5n', 'v5b', 'v5m', 'v5r', 'v5k-s',
+  'vs-i', 'vs-s', 'vk',
+]);
+function isVerb(r) {
+  return r.pos.some((p) => VERB_POS.has(p));
+}
 
 const query = ref('');
 const matchMode = ref('auto'); // 'auto' | 'startsWith' | 'endsWith' | 'contains'
@@ -87,31 +97,54 @@ const selectedDialectLabel = computed(
   () => DIALECT_OPTIONS.find(([t]) => t === dialect.value)?.[1] ?? null,
 );
 
-// Clicking a result card expands it in place to show Tatoeba example
-// sentences (furigana pre-baked at build time - see build-furigana.mjs).
-// Only one card is expanded at a time, and sentences are fetched lazily on
-// first expand, then cached by entry id for the rest of the session so
-// re-toggling the same card doesn't re-query the DB.
+// Clicking a result card expands it in place to show its kanji breakdown
+// (stroke count + on'yomi/kun'yomi), Tatoeba example sentences (furigana
+// pre-baked at build time - see build-furigana.mjs), and, for verbs, a
+// conjugation panel. Only one card is expanded at a time; kanji and
+// sentences are fetched lazily on first expand, then cached by entry id for
+// the rest of the session so re-toggling the same card doesn't re-query the
+// DB. Conjugation is pure string logic (conjugate.js) - no fetch needed.
 const expandedId = ref(null);
 const sentenceCache = ref({}); // entryId -> { status: 'loading'|'ready'|'error', sentences: [] }
+const kanjiCache = ref({}); // entryId -> { status: 'loading'|'ready'|'error', kanji: [] }
+const showConjugation = ref(false);
 
 function sentencesFor(entryId) {
   return sentenceCache.value[entryId] ?? { status: 'idle', sentences: [] };
 }
 
-async function toggleExpand(entryId) {
+function kanjiFor(entryId) {
+  return kanjiCache.value[entryId] ?? { status: 'idle', kanji: [] };
+}
+
+function conjugationFor(r) {
+  return conjugate(r.kanji[0] ?? null, r.readings[0], r.pos);
+}
+
+function toggleConjugation() {
+  showConjugation.value = !showConjugation.value;
+}
+
+async function toggleExpand(entryId, headword) {
   if (expandedId.value === entryId) {
     expandedId.value = null;
     return;
   }
   expandedId.value = entryId;
-  if (sentenceCache.value[entryId]) return;
-  sentenceCache.value[entryId] = { status: 'loading', sentences: [] };
-  try {
-    const sentences = await fetchSentencesForEntry(driver, entryId);
-    sentenceCache.value[entryId] = { status: 'ready', sentences };
-  } catch {
-    sentenceCache.value[entryId] = { status: 'error', sentences: [] };
+  showConjugation.value = false;
+
+  if (!sentenceCache.value[entryId]) {
+    sentenceCache.value[entryId] = { status: 'loading', sentences: [] };
+    fetchSentencesForEntry(driver, entryId)
+      .then((sentences) => { sentenceCache.value[entryId] = { status: 'ready', sentences }; })
+      .catch(() => { sentenceCache.value[entryId] = { status: 'error', sentences: [] }; });
+  }
+
+  if (!kanjiCache.value[entryId]) {
+    kanjiCache.value[entryId] = { status: 'loading', kanji: [] };
+    fetchKanjiDetails(driver, headword)
+      .then((kanji) => { kanjiCache.value[entryId] = { status: 'ready', kanji }; })
+      .catch(() => { kanjiCache.value[entryId] = { status: 'error', kanji: [] }; });
   }
 }
 
@@ -362,7 +395,7 @@ onMounted(loadRealDictionary);
             :key="r.id"
             class="result-card"
             :class="{ expanded: expandedId === r.id }"
-            @click="toggleExpand(r.id)"
+            @click="toggleExpand(r.id, r.kanji.join(''))"
           >
             <div class="result-row">
               <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
@@ -372,8 +405,34 @@ onMounted(loadRealDictionary);
               <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
-            <div v-if="expandedId === r.id" class="sentence-panel" @click.stop>
-              <p class="sentence-panel-label">Examples</p>
+            <div v-if="expandedId === r.id" class="detail-panel" @click.stop>
+              <div v-if="r.kanji.length" class="kanji-details">
+                <p class="detail-label">Kanji</p>
+                <p v-if="kanjiFor(r.id).status === 'loading'" class="detail-status">Loading kanji…</p>
+                <p v-else-if="kanjiFor(r.id).status === 'error'" class="detail-status detail-status-error">Couldn't load kanji details.</p>
+                <ul v-else-if="kanjiFor(r.id).kanji.length" class="kanji-list">
+                  <li v-for="k in kanjiFor(r.id).kanji" :key="k.literal" class="kanji-item">
+                    <span class="kanji-literal">{{ k.literal }}</span>
+                    <span v-if="k.strokeCount" class="kanji-strokes">{{ k.strokeCount }} strokes</span>
+                    <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On</span>{{ k.onyomi.join('、') }}</span>
+                    <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun</span>{{ k.kunyomi.join('、') }}</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="isVerb(r)" class="conjugate-section">
+                <button type="button" class="conjugate-btn" @click="toggleConjugation">
+                  {{ showConjugation ? 'Hide conjugation' : 'Conjugate ▾' }}
+                </button>
+                <ul v-if="showConjugation" class="conjugation-list">
+                  <li v-for="f in conjugationFor(r)" :key="f.label" class="conjugation-row">
+                    <span class="conj-label">{{ f.label }}</span>
+                    <span class="conj-form"><span class="conj-stem">{{ f.stem }}</span><span class="conj-ending">{{ f.ending }}</span></span>
+                  </li>
+                </ul>
+              </div>
+
+              <p class="detail-label">Examples</p>
               <p v-if="sentencesFor(r.id).status === 'loading'" class="sentence-status">Loading examples…</p>
               <p v-else-if="sentencesFor(r.id).status === 'error'" class="sentence-status sentence-status-error">Couldn't load example sentences.</p>
               <p v-else-if="sentencesFor(r.id).sentences.length === 0" class="sentence-status">No example sentences.</p>
@@ -400,7 +459,7 @@ onMounted(loadRealDictionary);
               :key="r.id"
               class="result-card archaic"
               :class="{ expanded: expandedId === r.id }"
-              @click="toggleExpand(r.id)"
+              @click="toggleExpand(r.id, r.kanji.join(''))"
             >
               <div class="result-row">
                 <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
@@ -411,8 +470,34 @@ onMounted(loadRealDictionary);
                 <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
-              <div v-if="expandedId === r.id" class="sentence-panel" @click.stop>
-                <p class="sentence-panel-label">Examples</p>
+              <div v-if="expandedId === r.id" class="detail-panel" @click.stop>
+                <div v-if="r.kanji.length" class="kanji-details">
+                  <p class="detail-label">Kanji</p>
+                  <p v-if="kanjiFor(r.id).status === 'loading'" class="detail-status">Loading kanji…</p>
+                  <p v-else-if="kanjiFor(r.id).status === 'error'" class="detail-status detail-status-error">Couldn't load kanji details.</p>
+                  <ul v-else-if="kanjiFor(r.id).kanji.length" class="kanji-list">
+                    <li v-for="k in kanjiFor(r.id).kanji" :key="k.literal" class="kanji-item">
+                      <span class="kanji-literal">{{ k.literal }}</span>
+                      <span v-if="k.strokeCount" class="kanji-strokes">{{ k.strokeCount }} strokes</span>
+                      <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On</span>{{ k.onyomi.join('、') }}</span>
+                      <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun</span>{{ k.kunyomi.join('、') }}</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div v-if="isVerb(r)" class="conjugate-section">
+                  <button type="button" class="conjugate-btn" @click="toggleConjugation">
+                    {{ showConjugation ? 'Hide conjugation' : 'Conjugate ▾' }}
+                  </button>
+                  <ul v-if="showConjugation" class="conjugation-list">
+                    <li v-for="f in conjugationFor(r)" :key="f.label" class="conjugation-row">
+                      <span class="conj-label">{{ f.label }}</span>
+                      <span class="conj-form"><span class="conj-stem">{{ f.stem }}</span><span class="conj-ending">{{ f.ending }}</span></span>
+                    </li>
+                  </ul>
+                </div>
+
+                <p class="detail-label">Examples</p>
                 <p v-if="sentencesFor(r.id).status === 'loading'" class="sentence-status">Loading examples…</p>
                 <p v-else-if="sentencesFor(r.id).status === 'error'" class="sentence-status sentence-status-error">Couldn't load example sentences.</p>
                 <p v-else-if="sentencesFor(r.id).sentences.length === 0" class="sentence-status">No example sentences.</p>
@@ -444,7 +529,7 @@ onMounted(loadRealDictionary);
             :key="r.id"
             class="result-card"
             :class="{ expanded: expandedId === r.id }"
-            @click="toggleExpand(r.id)"
+            @click="toggleExpand(r.id, r.kanji.join(''))"
           >
             <div class="result-row">
               <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
@@ -453,8 +538,34 @@ onMounted(loadRealDictionary);
               <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
-            <div v-if="expandedId === r.id" class="sentence-panel" @click.stop>
-              <p class="sentence-panel-label">Examples</p>
+            <div v-if="expandedId === r.id" class="detail-panel" @click.stop>
+              <div v-if="r.kanji.length" class="kanji-details">
+                <p class="detail-label">Kanji</p>
+                <p v-if="kanjiFor(r.id).status === 'loading'" class="detail-status">Loading kanji…</p>
+                <p v-else-if="kanjiFor(r.id).status === 'error'" class="detail-status detail-status-error">Couldn't load kanji details.</p>
+                <ul v-else-if="kanjiFor(r.id).kanji.length" class="kanji-list">
+                  <li v-for="k in kanjiFor(r.id).kanji" :key="k.literal" class="kanji-item">
+                    <span class="kanji-literal">{{ k.literal }}</span>
+                    <span v-if="k.strokeCount" class="kanji-strokes">{{ k.strokeCount }} strokes</span>
+                    <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On</span>{{ k.onyomi.join('、') }}</span>
+                    <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun</span>{{ k.kunyomi.join('、') }}</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="isVerb(r)" class="conjugate-section">
+                <button type="button" class="conjugate-btn" @click="toggleConjugation">
+                  {{ showConjugation ? 'Hide conjugation' : 'Conjugate ▾' }}
+                </button>
+                <ul v-if="showConjugation" class="conjugation-list">
+                  <li v-for="f in conjugationFor(r)" :key="f.label" class="conjugation-row">
+                    <span class="conj-label">{{ f.label }}</span>
+                    <span class="conj-form"><span class="conj-stem">{{ f.stem }}</span><span class="conj-ending">{{ f.ending }}</span></span>
+                  </li>
+                </ul>
+              </div>
+
+              <p class="detail-label">Examples</p>
               <p v-if="sentencesFor(r.id).status === 'loading'" class="sentence-status">Loading examples…</p>
               <p v-else-if="sentencesFor(r.id).status === 'error'" class="sentence-status sentence-status-error">Couldn't load example sentences.</p>
               <p v-else-if="sentencesFor(r.id).sentences.length === 0" class="sentence-status">No example sentences.</p>
@@ -481,7 +592,7 @@ onMounted(loadRealDictionary);
               :key="r.id"
               class="result-card archaic"
               :class="{ expanded: expandedId === r.id }"
-              @click="toggleExpand(r.id)"
+              @click="toggleExpand(r.id, r.kanji.join(''))"
             >
               <div class="result-row">
                 <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
@@ -490,8 +601,34 @@ onMounted(loadRealDictionary);
                 <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
-              <div v-if="expandedId === r.id" class="sentence-panel" @click.stop>
-                <p class="sentence-panel-label">Examples</p>
+              <div v-if="expandedId === r.id" class="detail-panel" @click.stop>
+                <div v-if="r.kanji.length" class="kanji-details">
+                  <p class="detail-label">Kanji</p>
+                  <p v-if="kanjiFor(r.id).status === 'loading'" class="detail-status">Loading kanji…</p>
+                  <p v-else-if="kanjiFor(r.id).status === 'error'" class="detail-status detail-status-error">Couldn't load kanji details.</p>
+                  <ul v-else-if="kanjiFor(r.id).kanji.length" class="kanji-list">
+                    <li v-for="k in kanjiFor(r.id).kanji" :key="k.literal" class="kanji-item">
+                      <span class="kanji-literal">{{ k.literal }}</span>
+                      <span v-if="k.strokeCount" class="kanji-strokes">{{ k.strokeCount }} strokes</span>
+                      <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On</span>{{ k.onyomi.join('、') }}</span>
+                      <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun</span>{{ k.kunyomi.join('、') }}</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div v-if="isVerb(r)" class="conjugate-section">
+                  <button type="button" class="conjugate-btn" @click="toggleConjugation">
+                    {{ showConjugation ? 'Hide conjugation' : 'Conjugate ▾' }}
+                  </button>
+                  <ul v-if="showConjugation" class="conjugation-list">
+                    <li v-for="f in conjugationFor(r)" :key="f.label" class="conjugation-row">
+                      <span class="conj-label">{{ f.label }}</span>
+                      <span class="conj-form"><span class="conj-stem">{{ f.stem }}</span><span class="conj-ending">{{ f.ending }}</span></span>
+                    </li>
+                  </ul>
+                </div>
+
+                <p class="detail-label">Examples</p>
                 <p v-if="sentencesFor(r.id).status === 'loading'" class="sentence-status">Loading examples…</p>
                 <p v-else-if="sentencesFor(r.id).status === 'error'" class="sentence-status sentence-status-error">Couldn't load example sentences.</p>
                 <p v-else-if="sentencesFor(r.id).sentences.length === 0" class="sentence-status">No example sentences.</p>
@@ -1166,7 +1303,7 @@ html, body {
   white-space: nowrap;
 }
 
-.sentence-panel {
+.detail-panel {
   margin-top: 0.6rem;
   padding: 0.6rem 0.7rem;
   background: var(--bg-elevated);
@@ -1175,13 +1312,23 @@ html, body {
   cursor: default;
 }
 
-.sentence-panel-label {
+.detail-label {
   margin: 0 0 0.5rem;
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
+}
+
+.detail-status {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+
+.detail-status-error {
+  color: var(--danger);
 }
 
 .sentence-status {
@@ -1192,6 +1339,108 @@ html, body {
 
 .sentence-status-error {
   color: var(--danger);
+}
+
+.kanji-details {
+  margin-bottom: 0.7rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.kanji-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.kanji-item {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.kanji-literal {
+  font-family: var(--font-jp);
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.kanji-strokes {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.kanji-yomi {
+  white-space: nowrap;
+}
+
+.kanji-yomi-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-faint);
+  margin-right: 0.3rem;
+}
+
+.conjugate-section {
+  margin-bottom: 0.7rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.conjugate-btn {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+}
+
+.conjugate-btn:hover {
+  border-color: var(--border-strong);
+}
+
+.conjugation-list {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.conjugation-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+}
+
+.conj-label {
+  min-width: 5rem;
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.conj-form {
+  font-family: var(--font-jp);
+}
+
+.conj-stem {
+  color: var(--text-muted);
+}
+
+.conj-ending {
+  color: var(--accent-strong);
+  font-weight: 700;
 }
 
 .sentence-list {
