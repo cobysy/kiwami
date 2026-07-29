@@ -32,3 +32,8 @@ dictionary data comes from third-party sources under their own licenses:
   (https://creativecommons.org/licenses/by/2.0/fr/).
 - kuromoji.js (https://github.com/takuyaa/kuromoji.js) and its bundled
   IPADIC dictionary data — Apache 2.0 / LGPL.
+- jconj-js (https://github.com/cobysy/jconj-js), a JS/TS port of the
+  JMdictDB project's table-based verb/adjective conjugator
+  (https://github.com/yamagoya/jconj) — MIT.
+
+See NOTICE.md for details on what each is used for.
