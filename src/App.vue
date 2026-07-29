@@ -4,14 +4,14 @@
 // Phase 2's real search UI — no routing, no entry/kanji detail views, no
 // styling system. Runs the query layer (src/db/dictionary) against the
 // browser driver (jeep-sqlite), the same driver
-// tests/browser/dictionary.test.js exercises under Playwright.
+// tests/browser/dictionary.test.js exercises under Playwright — both load
+// the real public/dictionary.db rather than a hand-picked fixture; see
+// README-DICTIONARY.md's findings on why that's fast enough in-browser.
 import { ref, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './db/drivers/browser-driver.js';
 import { search, fuzzySearch, deconjugate } from './db/dictionary/index.js';
-import { seedFixtureDb } from '../tests/fixtures/seed.js';
 
 const status = ref('idle');
-const dataset = ref(null); // 'fixture' | 'dictionary'
 const errorMessage = ref('');
 
 const query = ref('');
@@ -24,22 +24,6 @@ const deconjugated = ref([]);
 
 let driver = null;
 
-async function loadFixture() {
-  status.value = 'loading';
-  errorMessage.value = '';
-  try {
-    await driver?.close();
-    driver = createBrowserDriver('kiwami-dev-fixture');
-    await driver.open();
-    await seedFixtureDb(driver);
-    dataset.value = 'fixture';
-    status.value = 'ready';
-  } catch (err) {
-    errorMessage.value = String(err);
-    status.value = 'error';
-  }
-}
-
 async function loadRealDictionary() {
   status.value = 'loading';
   errorMessage.value = '';
@@ -48,7 +32,6 @@ async function loadRealDictionary() {
     await driver?.close();
     driver = createBrowserDriver('dictionary', { readonly: true });
     await driver.open();
-    dataset.value = 'dictionary';
     status.value = 'ready';
   } catch (err) {
     errorMessage.value = `${err} (run "npm run build:db -- db" first if this is a missing-file error)`;
@@ -79,7 +62,7 @@ async function runFuzzy() {
   fuzzyResults.value = await fuzzySearch(driver, query.value);
 }
 
-onMounted(loadFixture);
+onMounted(loadRealDictionary);
 </script>
 
 <template>
@@ -87,13 +70,8 @@ onMounted(loadFixture);
     <h1>Kiwami (極) — Phase 1 dev harness</h1>
 
     <p>
-      <button type="button" @click="loadFixture">Load fixture data</button>
-      <button type="button" @click="loadRealDictionary" style="margin-left: 0.5rem;">
-        Load real dictionary.db
-      </button>
-      <span style="margin-left: 0.5rem;">
-        status: {{ status }}<span v-if="dataset"> ({{ dataset }})</span>
-      </span>
+      <button type="button" @click="loadRealDictionary">Reload dictionary.db</button>
+      <span style="margin-left: 0.5rem;">status: {{ status }}</span>
     </p>
     <p v-if="errorMessage" style="color: crimson;">{{ errorMessage }}</p>
 

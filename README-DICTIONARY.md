@@ -22,9 +22,10 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   query layer by hand in a browser tab.
 - [tests/](tests/): `tests/shared/run-dictionary-suite.js` holds the actual test bodies, run against
   both drivers via `tests/node/dictionary.test.js` and `tests/browser/dictionary.test.js`, proving the
-  same query layer behaves identically regardless of which driver is underneath. Seeded through
-  a small handpicked fixture (`tests/fixtures/`), not the real 164MB dictionary — see
-  `tests/fixtures/seed.js` for why.
+  same query layer behaves identically regardless of which driver is underneath. Runs against the
+  real `public/dictionary.db` (read-only), not a hand-picked fixture — see the findings below on
+  why that's fast enough in both drivers; every test anchor (entry IDs, headwords) is a real
+  dictionary entry looked up directly, the same way `verify-db.mjs`'s example queries are.
 
 ## Scripts
 

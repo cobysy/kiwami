@@ -1,5 +1,5 @@
 import { defineCustomElements } from 'jeep-sqlite/loader';
-import { createBrowserDriver } from '../../src/db/drivers/browser-driver.js';
+import { createBrowserDriver, ensureDatabaseFromUrl } from '../../src/db/drivers/browser-driver.js';
 import { runDictionarySuite } from '../shared/run-dictionary-suite.js';
 
 let jeepReady = null;
@@ -16,13 +16,12 @@ function ensureJeepSqliteElement() {
   return jeepReady;
 }
 
-let dbCounter = 0;
-
 runDictionarySuite('browser (jeep-sqlite)', async () => {
   await ensureJeepSqliteElement();
-  dbCounter += 1;
-  // Unique name per test run avoids colliding with IndexedDB state a
-  // previous run left behind — this is a throwaway dev-test database, not
-  // something that needs cleanup/reuse logic.
-  return createBrowserDriver(`kiwami-test-${Date.now()}-${dbCounter}`);
+  // Fetched once and cached in IndexedDB by jeep-sqlite; ensureDatabaseFromUrl
+  // no-ops on subsequent runs once it's present.
+  await ensureDatabaseFromUrl('dictionary', '/dictionary.db');
+  const driver = createBrowserDriver('dictionary', { readonly: true });
+  await driver.open();
+  return driver;
 });

@@ -3,15 +3,26 @@
 // (jeep-sqlite) drivers — proving PLAN.md Phase 1's requirement that
 // swapping the driver behind the shared interface is the only
 // platform-specific step. tests/node/dictionary.test.js and
-// tests/browser/dictionary.test.js each just call this with their own factory.
+// tests/browser/dictionary.test.js each just call this with their own
+// factory.
+//
+// Runs against the real public/dictionary.db (read-only), not a hand-picked
+// fixture — a fixture schema/seed duplicated scripts/assemble-sqlite.mjs's
+// own CREATE TABLE + insert logic for no real benefit, since the real
+// database is small enough to open instantly (Node) and load in well under
+// a second in the browser driver too (see README-DICTIONARY.md's
+// findings). Every anchor below (entry IDs, real headwords/readings) was
+// looked up directly against the real data rather than guessed, the same
+// way scripts/verify-db.mjs's example queries pin to real entries like
+// 明白/id 1000220.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { assertDriver } from '../../src/db/driver.js';
 import { search, fuzzySearch, deconjugate } from '../../src/db/dictionary/index.js';
-import { seedFixtureDb } from '../fixtures/seed.js';
 
 /**
  * @param {string} label - shown in the describe block name (e.g. "node", "browser")
- * @param {() => Promise<import('../../src/db/driver.js').DBDriver>} createDriver
+ * @param {() => Promise<import('../../src/db/driver.js').DBDriver>} createDriver - must
+ *   return an already-opened driver, read-only, pointed at the real dictionary.db.
  */
 export function runDictionarySuite(label, createDriver) {
   describe(`dictionary (${label} driver)`, () => {
@@ -21,99 +32,108 @@ export function runDictionarySuite(label, createDriver) {
     beforeAll(async () => {
       driver = await createDriver();
       assertDriver(driver);
-      await driver.open();
-      await seedFixtureDb(driver);
     });
 
     afterAll(async () => {
       await driver?.close();
     });
 
-    it('runs raw exec/all/run through the driver', async () => {
+    it('runs a raw query through the driver', async () => {
       const rows = await driver.all('SELECT count(*) AS c FROM entries');
-      expect(rows[0].c).toBe(11);
+      expect(rows[0].c).toBeGreaterThan(100000);
     });
 
     describe('search()', () => {
+      // 食べる/たべる (id 1358280, "to eat") — a common ichidan verb with no
+      // homograph, so it's a clean single-entry anchor for the exact/prefix/
+      // substring tiers and the kanji-count facet.
       it('finds an exact kanji match', async () => {
         const { tier, results } = await search(driver, '食べる');
         expect(tier).toBe('exact');
-        expect(results.map((r) => r.id)).toContain(1);
+        expect(results.map((r) => r.id)).toContain(1358280);
       });
 
       it('finds an exact reading match', async () => {
         const { tier, results } = await search(driver, 'たべる');
         expect(tier).toBe('exact');
-        expect(results.map((r) => r.id)).toContain(1);
+        expect(results.map((r) => r.id)).toContain(1358280);
       });
 
       it('finds an exact gloss match, case-insensitively', async () => {
         const { results } = await search(driver, 'To Eat');
-        expect(results.map((r) => r.id)).toContain(1);
+        expect(results.map((r) => r.id)).toContain(1358280);
       });
 
       it('falls through to the prefix tier when no exact match exists', async () => {
         const { tier, results } = await search(driver, 'たべ');
         expect(tier).toBe('prefix');
-        expect(results.map((r) => r.id)).toContain(1);
+        expect(results.map((r) => r.id)).toContain(1358280);
       });
 
       it('falls through to the substring tier for a mid-word fragment', async () => {
         const { tier, results } = await search(driver, 'べる');
         expect(tier).toBe('substring');
-        expect(results.map((r) => r.id)).toContain(1);
+        expect(results.map((r) => r.id)).toContain(1358280);
       });
 
-      it('stops at the exact tier without reaching prefix/substring matches', async () => {
-        // "水" is an exact kanji match on entry 4; it's also a substring of
-        // no other fixture headword, so this also proves tiers don't run
-        // past the first one with hits.
+      it('stops at the exact tier without falling through to prefix/substring', async () => {
+        // "水" has two real JMdict entries with that exact kanji headword
+        // (1371260 "water", the common reading みず; 2153780 the rarer すい
+        // reading) — both are legitimate exact hits, proving the tier
+        // doesn't fall through past a non-empty exact match even when it
+        // isn't a single-entry one.
         const { tier, results } = await search(driver, '水');
         expect(tier).toBe('exact');
-        expect(results.map((r) => r.id)).toEqual([4]);
+        expect(results.map((r) => r.id)).toEqual(expect.arrayContaining([1371260, 2153780]));
       });
 
       it('treats a query with * as a wildcard and skips fuzzy correction', async () => {
         const { tier, results } = await search(driver, '食*');
         expect(tier).toBe('wildcard');
-        expect(results.map((r) => r.id)).toContain(1);
+        expect(results.map((r) => r.id)).toContain(1358280);
       });
 
       it('supports ? as a single-character wildcard', async () => {
         const { results } = await search(driver, '?み');
-        // no fixture headword matches this pattern; assert it at least runs
-        // the wildcard path without throwing and returns an array.
+        // Real dictionary content for this pattern varies; just assert it
+        // runs the wildcard path without throwing and returns an array.
         expect(Array.isArray(results)).toBe(true);
       });
 
       it('flags an archaic-only entry with its specific misc tag', async () => {
-        const { results } = await search(driver, 'thou');
-        expect(results[0].id).toBe(6);
+        // なむち (id 2174460, an archaic reading of 汝/"thou") has no other
+        // entry sharing that exact reading, so it's a clean single-result
+        // anchor for the archaic/labels fields.
+        const { results } = await search(driver, 'なむち');
+        expect(results[0].id).toBe(2174460);
         expect(results[0].archaic).toBe(true);
         expect(results[0].labels).toContain('arch');
       });
 
       it('sorts common-first and pushes the archaic entry to the bottom regardless of its score', async () => {
-        // A bare "*" wildcard matches every fixture entry (kanji or
-        // reading), giving a real multi-entry tier to check ordering on:
-        // entry 6 (汝, commonness 1) is archaic and should sort last even
-        // though it's not the lowest-scoring entry overall by coincidence.
-        const { results } = await search(driver, '*');
+        // A "水酸*" wildcard matches a small, real mixed set: 11 non-archaic
+        // chemistry terms (水酸化ナトリウム "sodium hydroxide", etc.) plus
+        // exactly one archaic entry (1886480, 水酸根). Small enough to check
+        // full ordering, unlike a bare "*" which would return only the top
+        // 50 of 200k+ entries (all non-archaic, since is_archaic sorts
+        // first) and never surface an archaic entry at all.
+        const { results } = await search(driver, '水酸*');
         const nonArchaic = results.filter((r) => !r.archaic).map((r) => r.commonness_score);
         expect(nonArchaic).toEqual([...nonArchaic].sort((a, b) => b - a));
-        expect(results.at(-1).id).toBe(6);
+        expect(results.at(-1).id).toBe(1886480);
+        expect(results.at(-1).archaic).toBe(true);
       });
 
       it('applies the kanji-count facet as an exact filter for 1-3', async () => {
         const { results } = await search(driver, 'たべる', { kanjiCount: 1 });
-        expect(results.map((r) => r.id)).toContain(1);
+        expect(results.map((r) => r.id)).toContain(1358280);
         const { results: none } = await search(driver, 'たべる', { kanjiCount: 2 });
-        expect(none.map((r) => r.id)).not.toContain(1);
+        expect(none.map((r) => r.id)).not.toContain(1358280);
       });
 
       it('treats kanji-count 4 as "4 or more"', async () => {
         const { results } = await search(driver, '一石二鳥', { kanjiCount: 4 });
-        expect(results.map((r) => r.id)).toContain(10);
+        expect(results.map((r) => r.id)).toContain(1164160);
       });
     });
 
@@ -121,9 +141,9 @@ export function runDictionarySuite(label, createDriver) {
       it('matches a chōon (vowel-length) confusion within the distance budget', async () => {
         const results = await fuzzySearch(driver, 'おばさん');
         const ids = results.map((r) => r.id);
-        expect(ids).toContain(8); // exact self-match, distance 0
-        expect(ids).toContain(9); // おばあさん, one cheap chōon indel away
-        const grandmother = results.find((r) => r.id === 9);
+        expect(ids).toContain(2261500); // exact self-match, distance 0
+        expect(ids).toContain(1002330); // おばあさん, one cheap chōon indel away
+        const grandmother = results.find((r) => r.id === 1002330);
         expect(grandmother.fuzzy).toBe(true);
         expect(grandmother.distance).toBeLessThan(1);
       });
@@ -132,22 +152,22 @@ export function runDictionarySuite(label, createDriver) {
     describe('deconjugate()', () => {
       it('derives the ichidan dictionary form from a past-tense query', async () => {
         const results = await deconjugate(driver, '食べた');
-        expect(results.some((r) => r.id === 1 && r.relation === 'past')).toBe(true);
+        expect(results.some((r) => r.id === 1358280 && r.relation === 'past')).toBe(true);
       });
 
       it('derives the godan dictionary form from a te-form query with sound change', async () => {
         const results = await deconjugate(driver, '飲んで');
-        expect(results.some((r) => r.id === 11 && r.relation === 'te-form')).toBe(true);
+        expect(results.some((r) => r.id === 1169870 && r.relation === 'te-form')).toBe(true);
       });
 
       it('derives the godan dictionary form from a negative-form query', async () => {
         const results = await deconjugate(driver, '書かない');
-        expect(results.some((r) => r.id === 2 && r.relation === 'negative')).toBe(true);
+        expect(results.some((r) => r.id === 1343950 && r.relation === 'negative')).toBe(true);
       });
 
       it('derives the i-adjective dictionary form from a past-tense query', async () => {
         const results = await deconjugate(driver, '高かった');
-        expect(results.some((r) => r.id === 3 && r.relation === 'past')).toBe(true);
+        expect(results.some((r) => r.id === 1283190 && r.relation === 'past')).toBe(true);
       });
 
       it('returns nothing for a query that is already dictionary form', async () => {
@@ -161,17 +181,21 @@ export function runDictionarySuite(label, createDriver) {
         const [kanjiRow] = await driver.all('SELECT * FROM kanji WHERE literal = ?', ['水']);
         expect(kanjiRow.stroke_count).toBe(4);
         const compounds = await driver.all('SELECT entry_id, score FROM kanji_compounds WHERE kanji = ? ORDER BY score DESC', ['水']);
-        expect(compounds[0].entry_id).toBe(4);
+        expect(compounds[0].entry_id).toBe(1371260);
       });
 
       it('reads a linked sentence with furigana for an entry', async () => {
+        // Sentence 1036819 ("何か食べたい？") is one of 食べる's (id 1358280)
+        // real linked Tatoeba sentences; its furigana tokenizes 食べ as its
+        // own surface/reading pair (the たい that follows is a separate
+        // token), which is what's asserted below.
         const [sentence] = await driver.all(
-          `SELECT s.* FROM entry_sentences es JOIN sentences s ON s.id = es.sentence_id WHERE es.entry_id = ?`,
-          [1],
+          'SELECT s.* FROM entry_sentences es JOIN sentences s ON s.id = es.sentence_id WHERE es.entry_id = ? AND s.id = ?',
+          [1358280, 1036819],
         );
-        expect(sentence.japanese).toContain('食べた');
+        expect(sentence.japanese).toContain('食べ');
         const furigana = JSON.parse(sentence.furigana);
-        expect(furigana.some((t) => t.surface === '食べた' && t.reading === 'たべた')).toBe(true);
+        expect(furigana.some((t) => t.surface === '食べ' && t.reading === 'たべ')).toBe(true);
       });
     });
   });
