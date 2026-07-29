@@ -15,6 +15,7 @@ import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-
 import { search, fuzzySearch, deconjugate, fetchSentencesForEntry, fetchKanjiDetails, conjugate } from './dictionary/index.js';
 import { DIALECT_OPTIONS } from './dictionary/dialect-labels.js';
 import { priorityLabel } from './dictionary/frequency-labels.js';
+import { version as appVersion } from '../package.json';
 
 // Tooltip text for a result's raw priority tags (news1, nf12, ...) - the
 // tags are meaningless on their own (especially nfXX bands), so the visible
@@ -233,30 +234,43 @@ onMounted(loadRealDictionary);
         <span class="brand-mark">極</span>
         <div class="brand-text">
           <h1>Kiwami</h1>
-          <span class="brand-sub">Japanese dictionary</span>
+          <span class="brand-sub">Japanese dictionary · v{{ appVersion }}</span>
         </div>
       </div>
-      <button
-        type="button"
-        class="icon-btn"
-        title="Reload dictionary.db"
-        :disabled="status === 'loading'"
-        @click="loadRealDictionary"
-      >
-        <svg
-          class="icon"
-          :class="{ spin: status === 'loading' }"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+      <div class="header-actions">
+        <a
+          class="icon-btn"
+          href="https://github.com/cobysy/kiwami"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="View on GitHub"
         >
-          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-          <path d="M21 3v6h-6" />
-        </svg>
-      </button>
+          <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.09 3.29 9.4 7.86 10.93.58.11.79-.25.79-.56 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.34-1.28-1.7-1.28-1.7-1.04-.72.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.64 1.59.24 2.77.12 3.06.74.8 1.19 1.83 1.19 3.09 0 4.43-2.7 5.4-5.27 5.69.42.36.78 1.07.78 2.15 0 1.56-.01 2.81-.01 3.19 0 .31.21.68.8.56A10.51 10.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z" />
+          </svg>
+        </a>
+        <button
+          type="button"
+          class="icon-btn"
+          title="Reload dictionary.db"
+          :disabled="status === 'loading'"
+          @click="loadRealDictionary"
+        >
+          <svg
+            class="icon"
+            :class="{ spin: status === 'loading' }"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <div class="status-row" :class="status">
@@ -752,6 +766,12 @@ html, body {
 .brand-sub {
   font-size: 0.72rem;
   color: var(--text-faint);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .icon-btn {
