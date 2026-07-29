@@ -47,16 +47,17 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   `public/assets/kuromoji-dict/`, where `tokenizer.js`'s deconjugation fallback expects them
   (a filesystem dir in Node, a URL prefix in the browser). Runs automatically on `npm install`
   (`postinstall`).
-- `npm run build:db -- db` — assembles `public/dictionary.db`. It's named `.db` rather than
-  `.sqlite` specifically so the dev harness's "load real dictionary" button can fetch it via
-  jeep-sqlite's HTTP-import path — see `ensureDatabaseFromUrl` in `browser-sqlite-driver.js`
-  for why the extension matters.
-- `npm run build:db -- zip` — compresses it to `public/dictionary.db.zip` (~1/3 the size),
-  the file actually tracked in git and fetched at runtime; jeep-sqlite unzips a `.zip` URL
-  client-side natively, no app-side decompression code needed (`scripts/zip-db.mjs`).
-- `npm run setup:db` — the reverse: extracts `public/dictionary.db` back out of the tracked
-  `.zip`. Runs automatically on `npm install` (`postinstall`), so a fresh clone never needs
-  network access to resume dev (`scripts/unzip-db.mjs`).
+- `npm run build:db -- db` — assembles `data/build/dictionary.db`. Kept out of `public/` so
+  `vite build` never ships this uncompressed 134MB copy — see `npm run build:db -- zip` below.
+- `npm run build:db -- zip` — compresses it to `public/dictionary.db.zip` (~1/3 the size, named
+  `.zip` rather than leaving it as `.db` so jeep-sqlite's HTTP-import path, which switches on
+  URL file extension, fetches and unzips it client-side natively — no app-side decompression
+  code needed (`scripts/zip-db.mjs`, `ensureDatabaseFromUrl` in `browser-sqlite-driver.js`).
+- `npm run setup:db` — the reverse: extracts `data/build/dictionary.db` back out of the
+  tracked `.zip`, for the node:sqlite-backed tooling that reads it directly. A manual escape
+  hatch — in practice that tooling (`tests/node/dictionary.test.js`, `scripts/verify-db.mjs`)
+  calls the same `ensureDictionaryDb()` itself on demand, so a fresh clone needs no separate
+  setup step or network access to resume dev (`scripts/unzip-db.mjs`).
 
 ## Findings from building this (see PLAN.md for the full write-up)
 

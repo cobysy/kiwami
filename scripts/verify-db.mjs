@@ -1,6 +1,6 @@
 // npm run verify:db
 //
-// Sanity-checks public/dictionary.db after `npm run build:db -- all` (or `-- db`):
+// Sanity-checks data/build/dictionary.db after `npm run build:db -- all` (or `-- db`):
 // foreign key integrity, row counts per table, a substring search spot check
 // (kana reading + English gloss, mirroring src/dictionary/search.js's
 // LIKE-scan), a full entry reconstruction, the kanji -> kanji_compounds join
@@ -20,13 +20,9 @@
 // Exits non-zero (and prints what failed) if any check fails, so this can
 // also be run as a build-sanity gate, not just for manual inspection.
 
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-import { existsSync, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_FILE = path.join(__dirname, '../public/dictionary.db');
+import { ensureDictionaryDb } from './unzip-db.mjs';
 
 const KNOWN_TABLES = [
   'entries', 'entry_kanji', 'entry_readings', 'entry_senses', 'entry_glosses',
@@ -43,8 +39,11 @@ function check(label, condition, detail = '') {
   }
 }
 
-if (!existsSync(DB_FILE)) {
-  console.error(`No database at ${DB_FILE}. Run \`npm run build:db\` first.`);
+let DB_FILE;
+try {
+  DB_FILE = await ensureDictionaryDb();
+} catch (err) {
+  console.error(`${err.message} Run \`npm run build:db\` first.`);
   process.exit(1);
 }
 

@@ -1,39 +1,43 @@
-// npm run setup:db
+// Extracts data/build/dictionary.db from public/dictionary.db.zip (the file
+// tracked in git, see scripts/zip-db.mjs) if it isn't already there.
+// Deliberately extracted outside public/ — nothing in the browser bundle
+// reads the raw file (jeep-sqlite fetches the .zip directly), so keeping it
+// out of public/ means `vite build` never ships this uncompressed 134MB
+// copy alongside the 49MB zip.
 //
-// Extracts public/dictionary.db.zip (the file tracked in git, see
-// scripts/zip-db.mjs) into public/dictionary.db, where node:sqlite-backed
-// tooling expects to read it directly: tests/node/dictionary.test.js,
-// scripts/verify-db.mjs, scripts/screenshot.mjs. Skips extraction if the
-// output already exists, same idempotent pattern as copy-sql-wasm.mjs and
-// copy-kuromoji-dict.mjs. Required after every `npm install`/fresh clone —
-// wired into `postinstall` below — so resuming dev never needs network
-// access to rebuild the database from source.
+// Imported directly by every bit of node:sqlite-backed tooling that needs
+// the raw file — tests/node/dictionary.test.js, scripts/verify-db.mjs — so
+// each is self-sufficient on a fresh clone with no separate setup step to
+// remember. Idempotent: skips extraction if the output already exists.
+// Also runnable directly (`npm run setup:db`) as a manual escape hatch.
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import JSZip from 'jszip';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, '../public/dictionary.db.zip');
-const DEST = path.join(__dirname, '../public/dictionary.db');
+const DEST_DIR = path.join(__dirname, '../data/build');
+const DEST = path.join(DEST_DIR, 'dictionary.db');
 
-if (existsSync(DEST)) {
-  console.log(`${path.relative(process.cwd(), DEST)} already exists, skipping.`);
-  process.exit(0);
+export async function ensureDictionaryDb() {
+  if (existsSync(DEST)) return DEST;
+  if (!existsSync(SRC)) throw new Error(`${SRC} not found.`);
+
+  const zip = await JSZip.loadAsync(readFileSync(SRC));
+  const entry = zip.file('dictionary.db');
+  if (!entry) throw new Error(`${SRC} has no "dictionary.db" entry.`);
+
+  mkdirSync(DEST_DIR, { recursive: true });
+  writeFileSync(DEST, await entry.async('nodebuffer'));
+  return DEST;
 }
 
-if (!existsSync(SRC)) {
-  console.error(`${SRC} not found.`);
-  process.exit(1);
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const existedBefore = existsSync(DEST);
+  const dest = await ensureDictionaryDb();
+  console.log(existedBefore
+    ? `${path.relative(process.cwd(), dest)} already exists, skipping.`
+    : `Extracted ${path.relative(process.cwd(), dest)}`);
 }
-
-const zip = await JSZip.loadAsync(readFileSync(SRC));
-const entry = zip.file('dictionary.db');
-if (!entry) {
-  console.error(`${SRC} has no "dictionary.db" entry.`);
-  process.exit(1);
-}
-writeFileSync(DEST, await entry.async('nodebuffer'));
-
-console.log(`Extracted ${path.relative(process.cwd(), DEST)}`);

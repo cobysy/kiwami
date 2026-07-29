@@ -24,20 +24,22 @@
 // list. Revisit with a real source (e.g. KanjiVG stroke/component structural
 // similarity) before adding it back.
 //
-// Output: public/dictionary.db. Not tracked in git itself (see .gitignore) —
-// `npm run build:db -- zip` (scripts/zip-db.mjs) compresses it to
-// public/dictionary.db.zip, which is what's tracked and served at runtime;
-// `npm run setup:db` (scripts/unzip-db.mjs, wired into `postinstall`)
-// extracts this file back out of that zip on a fresh clone, so resuming dev
-// still needs no network access despite rebuilding from source needing
-// three external hosts and a couple of minutes. This file lives in public/
-// specifically because that's where Phase 1's Vite app needs it — sql.js
-// fetches it at runtime as a static asset. Named `.db` rather than
-// `.sqlite`: jeep-sqlite's HTTP-import path picks its strategy from the
-// URL's file extension and only recognizes `.db`/`.zip` (see
-// `ensureDatabaseFromUrl` in src/dictionary/sqlite-drivers/browser-sqlite-driver.js), so this
-// is the name the dev harness's "load real dictionary" button needs — no
-// separate symlink/rename step required.
+// Output: data/build/dictionary.db — an intermediate build artifact (like
+// the rest of data/build/, gitignored), not something shipped directly.
+// Node-side tooling reads it straight off disk (tests/node/dictionary.test.js,
+// scripts/verify-db.mjs, scripts/screenshot.mjs). What actually ships to
+// public/ — and is what's tracked in git and fetched at runtime — is
+// public/dictionary.db.zip, produced from this file by `npm run build:db --
+// zip` (scripts/zip-db.mjs); `npm run setup:db` (scripts/unzip-db.mjs, wired
+// into `postinstall`) extracts this file back out of that zip on a fresh
+// clone, so resuming dev still needs no network access despite rebuilding
+// from source needing three external hosts and a couple of minutes. Kept
+// out of public/ specifically so `vite build`'s publicDir copy never ships
+// this uncompressed 134MB copy alongside the 49MB zip nothing in the
+// browser bundle references anymore. Zip entries are still named `dictionary.db`
+// rather than `.sqlite`: jeep-sqlite's HTTP-import path picks its strategy
+// from the URL's file extension and only recognizes `.db`/`.zip` (see
+// `ensureDatabaseFromUrl` in src/dictionary/sqlite-drivers/browser-sqlite-driver.js).
 
 import { createReadStream, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -47,7 +49,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUILD_DIR = path.join(__dirname, '../data/build');
-const OUT_FILE = path.join(__dirname, '../public/dictionary.db');
+const OUT_FILE = path.join(BUILD_DIR, 'dictionary.db');
 
 // node:sqlite has no built-in `db.transaction()` helper (unlike
 // better-sqlite3) — wrap BEGIN/COMMIT/ROLLBACK by hand.

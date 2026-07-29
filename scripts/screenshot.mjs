@@ -1,6 +1,6 @@
 // npm run screenshot
 //
-// Launches a Vite dev server against the real public/dictionary.db, drives
+// Launches a Vite dev server against the real public/dictionary.db.zip, drives
 // the app in headless Chromium (Playwright, already a devDependency for
 // tests/browser), and searches "した" — simultaneously a real headword (下,
 // "below") and the past tense of する ("to do") — to demonstrate
@@ -11,7 +11,7 @@
 // furigana) are all visible in one shot. Saves the capture to
 // docs/screenshot.png for README.md.
 //
-// Requires public/dictionary.db to exist first (npm run build:db).
+// Requires public/dictionary.db.zip to exist first (npm run build:db).
 
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
@@ -21,12 +21,12 @@ import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
-const DB_PATH = path.join(ROOT, 'public/dictionary.db');
+const DB_PATH = path.join(ROOT, 'public/dictionary.db.zip');
 const OUT_DIR = path.join(ROOT, 'docs');
 const OUT_PATH = path.join(OUT_DIR, 'screenshot.png');
 
 if (!existsSync(DB_PATH)) {
-  console.error('public/dictionary.db not found — run "npm run build:db" first.');
+  console.error('public/dictionary.db.zip not found — run "npm run build:db" first.');
   process.exit(1);
 }
 

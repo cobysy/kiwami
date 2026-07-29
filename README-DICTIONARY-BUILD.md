@@ -37,14 +37,16 @@ The build pipeline produces:
 
 - data/raw/...: fetched source files
 - data/build/...: intermediate NDJSON artifacts, including entries, kanji, sentences, furigana, and kanji_compounds
-- public/dictionary.db: the assembled database used by the app (named `.db` rather than
-  `.sqlite` so jeep-sqlite's browser HTTP-import path, which switches on URL file
-  extension, can fetch it directly — see scripts/assemble-sqlite.mjs)
+- data/build/dictionary.db: the assembled database (scripts/assemble-sqlite.mjs), read
+  directly by node:sqlite-backed tooling (tests/node/dictionary.test.js, scripts/verify-db.mjs).
+  Kept out of public/ so `vite build` never ships this uncompressed 134MB copy — nothing in
+  the browser bundle reads it directly, only its compressed form below
 - public/dictionary.db.zip: `dictionary.db` compressed to ~1/3 its size (scripts/zip-db.mjs) —
   the file actually tracked in git and fetched at runtime; jeep-sqlite's HTTP-import path
-  natively unzips a `.zip` URL client-side, so no bespoke decompression code is needed. A
-  fresh clone/`npm install` re-extracts `public/dictionary.db` from it automatically
-  (scripts/unzip-db.mjs, `postinstall`)
+  natively unzips a `.zip` URL client-side, so no bespoke decompression code is needed. On a
+  fresh clone, `scripts/unzip-db.mjs`'s `ensureDictionaryDb()` re-extracts
+  `data/build/dictionary.db` from it on demand, the first time Node-side tooling needs it —
+  no separate setup step to remember (also runnable manually via `npm run setup:db`)
 
 ## Verification
 

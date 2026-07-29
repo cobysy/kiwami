@@ -89,5 +89,12 @@ plain gzip (~163.8MB → ~62.7MB); pulled since nothing consumed the output yet.
 (`ensureDatabaseFromUrl` in `browser-sqlite-driver.js`) existed to consume it — jeep-sqlite's
 HTTP-import path natively fetches and unzips a `.zip` URL client-side (via bundled JSZip), so
 zip needs no bespoke decompression code, unlike gzip. `public/dictionary.db.zip` is now the
-file tracked in git (under GitHub's 100MB file limit; the raw `.db` isn't) and the one served
-at runtime — see `scripts/zip-db.mjs` / `scripts/unzip-db.mjs`.
+file tracked in git and the one served at runtime; the raw `.db` moved to
+`data/build/dictionary.db` (an intermediate, gitignored build artifact, previously tracked
+via Git LFS at `public/dictionary.db`) since nothing in the browser bundle reads it directly
+anymore. Cuts LFS storage/bandwidth usage (GitHub's free tier caps both at 1GB/month) even
+though the raw file was never actually blocked by GitHub's 100MB push limit — it was already
+under Git LFS, which has no such per-file cap. `data/build/dictionary.db` is regenerated
+on-demand by `scripts/unzip-db.mjs`'s `ensureDictionaryDb()`, called directly by whatever
+node:sqlite-backed tooling needs it (also runnable manually via `npm run setup:db`) — see
+`scripts/zip-db.mjs` / `scripts/unzip-db.mjs`.

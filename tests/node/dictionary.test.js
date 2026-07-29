@@ -1,12 +1,10 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createNodeDriver } from '../../src/dictionary/sqlite-drivers/node-sqlite-driver.js';
 import { runDictionarySuite } from '../shared/run-dictionary-suite.js';
-
-const DB_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../public/dictionary.db');
+import { ensureDictionaryDb } from '../../scripts/unzip-db.mjs';
 
 runDictionarySuite('node (node:sqlite)', async () => {
-  const driver = createNodeDriver(DB_FILE, { readonly: true });
+  const dbFile = await ensureDictionaryDb();
+  const driver = createNodeDriver(dbFile, { readonly: true });
   await driver.open();
   return driver;
 });
