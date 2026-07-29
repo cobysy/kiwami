@@ -10,7 +10,7 @@ never device to device directly.
 
 ## Current status
 
-As of 2026-07-29, the repository contains the dictionary data-build pipeline and the generated database assets (Phase 0), plus Phase 1's dictionary engine: the shared driver interface, the Node (better-sqlite3) and browser (jeep-sqlite web fallback) drivers, and the full query layer (tiered match, wildcards, kanji-count facet, archaic tagging, fuzzy kana matching, deconjugation) — all covered by one test suite that runs identically against both drivers (`npm run test:node` / `npm run test:browser`), plus a minimal dev harness (`npm run dev`) for exercising it by hand. See [README-ENGINE.md](README-ENGINE.md) and Phase 1 below for what's done vs. still open (notably: the Electron IPC stub, and native-storage bundling/copy-on-first-run, both deferred to Phase 3). Phase 2's real UI and the native shell work in later phases is still planned rather than implemented.
+As of 2026-07-29, the repository contains the dictionary data-build pipeline and the generated database assets (Phase 0), plus Phase 1's dictionary engine: the shared driver interface, the Node (node:sqlite) and browser (jeep-sqlite web fallback) drivers, and the full query layer (tiered match, wildcards, kanji-count facet, archaic tagging, fuzzy kana matching, deconjugation) — all covered by one test suite that runs identically against both drivers (`npm run test:node` / `npm run test:browser`), plus a minimal dev harness (`npm run dev`) for exercising it by hand. See [README-DICTIONARY.md](README-DICTIONARY.md) and Phase 1 below for what's done vs. still open (notably: the Electron IPC stub, and native-storage bundling/copy-on-first-run, both deferred to Phase 3). Phase 2's real UI and the native shell work in later phases is still planned rather than implemented.
 
 See [PLAN-DICTIONARY-BUILD.md](PLAN-DICTIONARY-BUILD.md) for the dictionary data-build plan.
 
@@ -64,7 +64,7 @@ driver implementations, which are the only pieces allowed to know which platform
       Done 2026-07-29: `index.html` + `vite.config.js` + `src/main.js` + `src/App.vue`, the
       latter being the dev harness (search box, kanji-count chips, fuzzy link, deconjugation
       banner) described below — not Phase 2's real UI. See
-      [README-ENGINE.md](README-ENGINE.md).
+      [README-DICTIONARY.md](README-DICTIONARY.md).
 - [x] **Shared driver interface, decided 2026-07-29**: define one small interface (e.g.
       `run(sql, params) → rows`, plus open/close) that all query logic is written against.
       This interface, and everything built on top of it, lives in the regular Vue codebase,
@@ -89,7 +89,7 @@ driver implementations, which are the only pieces allowed to know which platform
         `@capacitor-community/sqlite`'s own JS API — the actual native iOS code path is
         untouched, so this should carry over unchanged, but that's unverified until Phase 3
         wires up a real Capacitor project and validates on-device/in-simulator). Real findings
-        from getting this working, written up in [README-ENGINE.md](README-ENGINE.md):
+        from getting this working, written up in [README-DICTIONARY.md](README-DICTIONARY.md):
         - `package.json` pins `sql.js` to exactly `1.11.0` (not `^1.11.0`) — see
           `scripts/copy-sql-wasm.mjs`'s header comment for why a semver-compatible newer
           version breaks jeep-sqlite's bundled JS glue's WASM ABI match.
@@ -366,7 +366,7 @@ container for sync:
 
 Phase 0 (dictionary data prep) and Phase 1 (dictionary engine: query layer + platform
 drivers, proven out with no UI involved) are both represented in this repository now — see
-their sections above and [README-ENGINE.md](README-ENGINE.md) for what's done vs. still open
+their sections above and [README-DICTIONARY.md](README-DICTIONARY.md) for what's done vs. still open
 within Phase 1 (the Electron IPC stub and native-storage bundling are deferred to Phase 3).
 The next priority is Phase 2: wire the Vue app's real UI to the query layer built in Phase 1.
 Cloud storage and sync work in Phases 5-6 should wait until the core dictionary experience is
