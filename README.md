@@ -32,7 +32,11 @@ Separately, `npm run verify:db` sanity-checks `dictionary.sqlite`: prints the
 live schema (a quick tour of every table, useful if you weren't around when
 it was built), row counts, foreign key integrity, FTS5 search spot checks,
 and join checks across entries/kanji/sentences/meta. Exits non-zero if
-anything fails.
+anything fails. It ends with an "Example queries" section — realistic
+query patterns (gloss/reading search, kanji-count filter, archaic labeling,
+kanji detail + compounds, sentence + furigana), each printing both the SQL
+and its actual result rows — meant as copy-pasteable reference for Phase 1's
+UI code, not just a correctness check.
 
 All fetch steps are idempotent — they skip re-downloading an archive that's
 already present. Pass `--force` through, e.g. `npm run build:db -- jmdict --force`,

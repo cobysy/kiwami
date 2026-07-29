@@ -9,7 +9,12 @@
 // Also prints the live schema (from sqlite_master) up front, so this script
 // doubles as a quick tour of what's actually in the database for anyone
 // who wasn't around when it was designed — read the printed CREATE TABLE
-// statements alongside PLAN.md's Phase 0 section for the "why".
+// statements alongside PLAN.md's Phase 0 section for the "why". The
+// "Example queries" section at the end continues that tour with realistic
+// query patterns (gloss/reading search, kanji-count filter, archaic
+// labeling, kanji detail + compounds, sentence + furigana) — each one
+// prints both the SQL and its actual result rows, meant as copy-pasteable
+// reference for whoever builds Phase 1's UI against this schema next.
 //
 // Exits non-zero (and prints what failed) if any check fails, so this can
 // also be run as a build-sanity gate, not just for manual inspection.
@@ -109,6 +114,102 @@ console.log('\n=== meta / attribution ===');
 const meta = Object.fromEntries(db.prepare('SELECT key, value FROM meta').all().map((r) => [r.key, r.value]));
 check('jmdict_kanjidic_attribution present', !!meta.jmdict_kanjidic_attribution);
 check('tatoeba_attribution present', !!meta.tatoeba_attribution);
+
+function runExample(title, sql, params = []) {
+  console.log(`\n--- ${title} ---`);
+  console.log(sql.trim().replace(/\n\s+/g, '\n  '));
+  console.log('→');
+  const rows = db.prepare(sql).all(...params);
+  console.log(rows.length ? rows : '(no rows)');
+  return rows;
+}
+
+console.log('\n=== Example queries ===');
+console.log('(realistic usage patterns against this schema — SQL + actual results)');
+
+// Shared subquery fragment: pulls the archaic/rare/obsolete/obscure tags
+// actually present on an entry's senses (via json_each unnesting the JSON
+// array stored in entry_senses.misc), so example results show the specific
+// label PLAN.md's Phase 1 UI would render ("archaic", "rare", etc.), not
+// just the coarse is_archaic boolean.
+const LABELS_SUBQUERY = `(
+  SELECT GROUP_CONCAT(DISTINCT m.value) FROM entry_senses s, json_each(s.misc) m
+  WHERE s.entry_id = e.id AND m.value IN ('arch', 'obs', 'rare', 'obsc')
+) AS labels`;
+
+runExample(
+  // Note: FTS5's tokenizer splits on hyphens, so a plain token search for
+  // "cat" also matches idioms like "scaredy-cat" (an entry meaning
+  // "coward") — a correct match on the indexed text, not a bug, but it
+  // shows why Phase 1's tiered matching (PLAN.md) needs to rank an exact
+  // gloss match above a match that's just one token inside a longer idiom.
+  'Search by English gloss, common-first ("cat")',
+  `SELECT e.id, GROUP_CONCAT(DISTINCT k.text) AS kanji, GROUP_CONCAT(DISTINCT r.text) AS readings,
+          GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score, e.is_archaic, ${LABELS_SUBQUERY}
+   FROM entries e
+   LEFT JOIN entry_kanji k ON k.entry_id = e.id
+   JOIN entry_readings r ON r.entry_id = e.id
+   JOIN entry_glosses g ON g.entry_id = e.id
+   WHERE e.id IN (SELECT entry_id FROM search_fts WHERE search_fts MATCH 'cat')
+   GROUP BY e.id ORDER BY e.commonness_score DESC LIMIT 5`,
+);
+
+runExample(
+  'Search by kana reading ("ねこ")',
+  `SELECT e.id, GROUP_CONCAT(DISTINCT k.text) AS kanji, GROUP_CONCAT(DISTINCT r.text) AS readings,
+          GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score, e.is_archaic, ${LABELS_SUBQUERY}
+   FROM entries e
+   LEFT JOIN entry_kanji k ON k.entry_id = e.id
+   JOIN entry_readings r ON r.entry_id = e.id
+   JOIN entry_glosses g ON g.entry_id = e.id
+   WHERE e.id IN (SELECT entry_id FROM search_fts WHERE search_fts MATCH 'ねこ')
+   GROUP BY e.id ORDER BY e.commonness_score DESC LIMIT 5`,
+);
+
+runExample(
+  'Kanji-count filter: single-kanji headwords, most common first',
+  `SELECT e.id, k.text AS headword, GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score,
+          e.is_archaic, ${LABELS_SUBQUERY}
+   FROM entries e
+   JOIN entry_kanji k ON k.entry_id = e.id AND k.ord = 0
+   JOIN entry_glosses g ON g.entry_id = e.id
+   WHERE e.kanji_count = 1 GROUP BY e.id ORDER BY e.commonness_score DESC LIMIT 5`,
+);
+
+runExample(
+  'Archaic/rare labeling: a few is_archaic entries, with the specific tag(s)',
+  `SELECT e.id, k.text AS headword, r.text AS reading, GROUP_CONCAT(DISTINCT g.text) AS glosses,
+          ${LABELS_SUBQUERY}
+   FROM entries e
+   LEFT JOIN entry_kanji k ON k.entry_id = e.id AND k.ord = 0
+   JOIN entry_readings r ON r.entry_id = e.id AND r.ord = 0
+   JOIN entry_glosses g ON g.entry_id = e.id
+   WHERE e.is_archaic = 1 GROUP BY e.id LIMIT 5`,
+);
+
+runExample(
+  'Kanji detail (水)',
+  `SELECT literal, onyomi, kunyomi, meanings, stroke_count, radical_number FROM kanji WHERE literal = '水'`,
+);
+
+runExample(
+  'Kanji compounds, common-first (水)',
+  `SELECT kc.entry_id, kc.score,
+          (SELECT text FROM entry_kanji WHERE entry_id = kc.entry_id ORDER BY ord LIMIT 1) AS headword
+   FROM kanji_compounds kc WHERE kc.kanji = '水' ORDER BY kc.score DESC LIMIT 5`,
+);
+
+const sentenceExample = runExample(
+  'Example sentence + furigana for an entry containing 水',
+  `SELECT s.japanese, s.english, s.furigana
+   FROM entry_sentences es
+   JOIN sentences s ON s.id = es.sentence_id
+   WHERE es.entry_id IN (SELECT entry_id FROM kanji_compounds WHERE kanji = '水' ORDER BY score DESC LIMIT 1)
+   LIMIT 1`,
+);
+if (sentenceExample[0]) {
+  console.log('furigana tokens:', JSON.parse(sentenceExample[0].furigana));
+}
 
 db.close();
 
