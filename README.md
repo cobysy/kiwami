@@ -9,6 +9,7 @@ Kiwami is real and running today, under active development, a working dictionary
 **[cobysy.github.io/kiwami](https://cobysy.github.io/kiwami/)**
 
 - Deconjugation — type a conjugated verb (食べた) and it points you to the dictionary form (食べる)
+- Fuzzy match — type what you thought you heard (じゅびん) and it finds what was said (尿瓶・しゅびん)
 - Archaic/rare words labeled, not hidden
 - Wildcard search (食*, *る)
 - Kanji-count filter
@@ -17,7 +18,11 @@ Kiwami is real and running today, under active development, a working dictionary
 
 ![Searching "たける" in Kiwami's dev harness: it deconjugates to the potential form of 炊く/焚く, lists dictionary matches with tags/conjugation/examples, and surfaces the archaic headword 梟帥・建 ("leader of a powerful tribe")](media/screenshot.png)
 
-Regenerate this screenshot with `npm run screenshot` (see [scripts/screenshot.mjs](scripts/screenshot.mjs); requires `public/dictionary.db` — run `npm run build:db` first if missing).
+Searching "じゅびん" — a plausible mishearing that matches nothing exactly — and following the "Didn't find it? Try fuzzy search →" link. Fuzzy match is opt-in, never an automatic fallback, and every result shows the weighted kana edit distance (Δ) behind it — ranking blends that distance with how common the word is, so a common near-miss isn't crowded out by obscure words a hair closer:
+
+![Kiwami's fuzzy matches for "じゅびん", each tagged with its distance: 出品・しゅっぴん (Δ0.90) and 受信・じゅしん (Δ1.00) alongside closer matches like 次便・じびん, 需品・じゅひん and 尿瓶・しゅびん (Δ0.30 each), 主賓・しゅひん (Δ0.60) and 十分・じゅうぶん (Δ1.30)](media/screenshot-fuzzy.png)
+
+Regenerate both screenshots with `npm run screenshot` (see [scripts/screenshot.mjs](scripts/screenshot.mjs); requires `public/dictionary.db.zst` — run `npm run build:db` first if missing).
 
 ## Documentation
 
