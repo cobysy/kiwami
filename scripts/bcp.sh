@@ -6,12 +6,12 @@
 # pattern from the "kirawareru" deconjugation fix (source fix + rebuilt
 # docs/ bundle, one commit, pushed straight to the working branch).
 #
-# Vite content-hashes docs/assets/* on every build, so a rebuild always
-# turns up as an untracked new file plus a deleted old one, never a plain
-# modification - `git add -A -- docs` is what picks up both sides of that.
-# Everything else only stages already-tracked modifications (`git add -u`),
-# so a stray untracked file elsewhere in the tree (e.g. a local .env) is
-# never swept in.
+# `git add -A` stages the whole tree - new files (e.g. a new source module),
+# modifications, and deletions alike - same as staging docs/ needs anyway:
+# Vite content-hashes docs/assets/* on every build, so a rebuild always turns
+# up as an untracked new file plus a deleted old one, never a plain
+# modification. .gitignore is still respected, so build output/deps/etc.
+# don't get swept in.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,8 +22,7 @@ fi
 
 npm run build:pages
 
-git add -u
-git add -A -- docs
+git add -A
 
 if git diff --cached --quiet; then
   echo "Nothing staged - nothing to commit." >&2
