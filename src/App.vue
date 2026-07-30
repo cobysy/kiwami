@@ -13,10 +13,10 @@
 import { ref, computed, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-drivers/browser-sqlite-driver.js';
 import { search, fuzzySearch, deconjugate, fetchSentencesForEntry, fetchKanjiDetails, conjugate } from './dictionary/index.js';
-import { DIALECT_OPTIONS } from './dictionary/dialect-labels.js';
-import { priorityLabel } from './dictionary/frequency-labels.js';
-import { posLabel, posShortLabel, posCategory } from './dictionary/pos-labels.js';
-import { miscLabel } from './dictionary/misc-labels.js';
+import { DIALECT_OPTIONS, dialectColor } from './dictionary/dialect-labels.js';
+import { priorityLabel, priorityColor } from './dictionary/frequency-labels.js';
+import { posLabel, posShortLabel, posColor } from './dictionary/pos-labels.js';
+import { miscLabel, miscColor } from './dictionary/misc-labels.js';
 import { version as appVersion } from '../package.json';
 
 // Tooltip text for a result's raw priority tags (news1, nf12, ...) - the
@@ -483,9 +483,10 @@ onMounted(async () => {
             <div class="result-row">
               <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
               <span v-if="r.kanji.length" class="result-reading">{{ r.readings.join('、') }}</span>
-              <span v-for="p in r.pos" :key="p" class="tag tag-pos" :class="`tag-pos-${posCategory(p)}`" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
-              <span v-for="d in r.dialect" :key="d" class="tag tag-dialect">{{ d }}</span>
-              <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
+              <span v-for="p in r.pos" :key="p" class="tag tag-pos" :style="{ '--tag-color': posColor(p) }" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
+              <span v-for="l in r.labels" :key="l" class="tag tag-label" :style="{ '--tag-color': miscColor(l) }">{{ miscLabel(l) }}</span>
+              <span v-for="d in r.dialect" :key="d" class="tag tag-dialect" :style="{ '--tag-color': dialectColor(d) }">{{ d }}</span>
+              <span v-if="r.priority.length" class="score-badge" :style="{ '--tag-color': priorityColor(r.priority) }" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
             <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
@@ -547,10 +548,10 @@ onMounted(async () => {
               <div class="result-row">
                 <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
                 <span v-if="r.kanji.length" class="result-reading">{{ r.readings.join('、') }}</span>
-                <span v-for="p in r.pos" :key="p" class="tag tag-pos" :class="`tag-pos-${posCategory(p)}`" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
-                <span v-for="l in r.labels" :key="l" class="tag tag-label">{{ miscLabel(l) }}</span>
-                <span v-for="d in r.dialect" :key="d" class="tag tag-dialect">{{ d }}</span>
-                <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
+                <span v-for="p in r.pos" :key="p" class="tag tag-pos" :style="{ '--tag-color': posColor(p) }" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
+                <span v-for="l in r.labels" :key="l" class="tag tag-label" :style="{ '--tag-color': miscColor(l) }">{{ miscLabel(l) }}</span>
+                <span v-for="d in r.dialect" :key="d" class="tag tag-dialect" :style="{ '--tag-color': dialectColor(d) }">{{ d }}</span>
+                <span v-if="r.priority.length" class="score-badge" :style="{ '--tag-color': priorityColor(r.priority) }" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
               <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
@@ -618,7 +619,9 @@ onMounted(async () => {
             <div class="result-row">
               <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
               <span class="result-reading">{{ r.readings.join('、') }}</span>
-              <span v-for="p in r.pos" :key="p" class="tag tag-pos" :class="`tag-pos-${posCategory(p)}`" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
+              <span v-for="p in r.pos" :key="p" class="tag tag-pos" :style="{ '--tag-color': posColor(p) }" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
+              <span v-for="l in r.labels" :key="l" class="tag tag-label" :style="{ '--tag-color': miscColor(l) }">{{ miscLabel(l) }}</span>
+              <span v-for="d in r.dialect" :key="d" class="tag tag-dialect" :style="{ '--tag-color': dialectColor(d) }">{{ d }}</span>
               <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
@@ -681,7 +684,9 @@ onMounted(async () => {
               <div class="result-row">
                 <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
                 <span class="result-reading">{{ r.readings.join('、') }}</span>
-                <span v-for="p in r.pos" :key="p" class="tag tag-pos" :class="`tag-pos-${posCategory(p)}`" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
+                <span v-for="p in r.pos" :key="p" class="tag tag-pos" :style="{ '--tag-color': posColor(p) }" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
+                <span v-for="l in r.labels" :key="l" class="tag tag-label" :style="{ '--tag-color': miscColor(l) }">{{ miscLabel(l) }}</span>
+                <span v-for="d in r.dialect" :key="d" class="tag tag-dialect" :style="{ '--tag-color': dialectColor(d) }">{{ d }}</span>
                 <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
@@ -1365,28 +1370,18 @@ html, body {
 }
 
 .tag-dialect {
-  color: var(--warning);
-  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  color: var(--tag-color, var(--text-muted));
+  border-color: color-mix(in srgb, var(--tag-color, var(--border)) 40%, var(--border));
 }
 
 .tag-label {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  color: var(--tag-color, var(--text-muted));
+  border-color: color-mix(in srgb, var(--tag-color, var(--border)) 40%, var(--border));
 }
 
-.tag-pos-verb {
-  color: #7dabf8;
-  border-color: color-mix(in srgb, #7dabf8 40%, var(--border));
-}
-
-.tag-pos-adjective {
-  color: #d78be0;
-  border-color: color-mix(in srgb, #d78be0 40%, var(--border));
-}
-
-.tag-pos-archaic {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+.tag-pos {
+  color: var(--tag-color, var(--text-muted));
+  border-color: color-mix(in srgb, var(--tag-color, var(--border)) 40%, var(--border));
 }
 
 .result-gloss {
@@ -1405,7 +1400,7 @@ html, body {
   margin-left: auto;
   padding-left: 0.5rem;
   font-size: 0.68rem;
-  color: var(--text-faint);
+  color: var(--tag-color, var(--text-faint));
   cursor: default;
   white-space: nowrap;
 }

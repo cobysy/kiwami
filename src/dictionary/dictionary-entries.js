@@ -5,17 +5,16 @@
 // common-first within a tier, archaic pushed down rather than filtered out.
 import { dialectLabel } from './dialect-labels.js';
 
-// Pulls the archaic/rare/obsolete/obscure tags actually present on an
-// entry's senses (same pattern verify-db.mjs's example queries use), so
-// callers get the specific label ("arch", "rare", ...) instead of just the
-// coarse `is_archaic` boolean.
+// Pulls every misc tag present on an entry's senses (arch/rare/obsolete, but
+// also things like "uk" (usually kana) or "hon" (honorific)) - see
+// misc-labels.js for the full tag -> display-word mapping.
 // misc/dial/priority are interned into tag_lists (see assemble-sqlite.mjs)
 // rather than storing the JSON array inline on every row, so each subquery
 // joins to tag_lists to get the JSON text back before unnesting it.
 const LABELS_SUBQUERY = `(
   SELECT GROUP_CONCAT(DISTINCT m.value) FROM entry_senses s
   JOIN tag_lists tl ON tl.id = s.misc_id, json_each(tl.json) m
-  WHERE s.entry_id = e.id AND m.value IN ('arch', 'obs', 'rare', 'obsc')
+  WHERE s.entry_id = e.id
 ) AS labels`;
 
 // Same GROUP_CONCAT-across-senses pattern as LABELS_SUBQUERY, but for

@@ -194,3 +194,19 @@ export function posCategory(tag) {
   if (tag.startsWith('v')) return 'verb';
   return 'other';
 }
+
+// Pill color per posCategory() bucket, defined here rather than as CSS
+// classes in App.vue so a tag's color travels with its categorization logic.
+// 'archaic' reuses misc-labels.js's archaic red so "old usage" reads as one
+// consistent color across pos and misc pills; 'other' has no entry, which
+// falls back to the pill's default muted color (nouns/particles/adverbs
+// aren't distinguished by color).
+const POS_CATEGORY_COLORS = {
+  archaic: '#ff7a7a',
+  verb: '#7dabf8',
+  adjective: '#d78be0',
+};
+
+export function posColor(tag) {
+  return POS_CATEGORY_COLORS[posCategory(tag)] ?? null;
+}
