@@ -42,11 +42,16 @@ The build pipeline produces:
   Kept out of public/ so `vite build` never ships this uncompressed 134MB copy — nothing in
   the browser bundle reads it directly, only its compressed form below
 - public/dictionary.db.zip: `dictionary.db` compressed to ~1/3 its size (scripts/zip-db.mjs) —
-  the file actually tracked in git and fetched at runtime; jeep-sqlite's HTTP-import path
-  natively unzips a `.zip` URL client-side, so no bespoke decompression code is needed. On a
-  fresh clone, `scripts/unzip-db.mjs`'s `ensureDictionaryDb()` re-extracts
-  `data/build/dictionary.db` from it on demand, the first time Node-side tooling needs it —
-  no separate setup step to remember (also runnable manually via `npm run setup:db`)
+  tracked in git; jeep-sqlite's HTTP-import path natively unzips a `.zip` URL client-side, so
+  no bespoke decompression code is needed. On a fresh clone, `scripts/unzip-db.mjs`'s
+  `ensureDictionaryDb()` re-extracts `data/build/dictionary.db` from it on demand, the first
+  time Node-side tooling needs it — no separate setup step to remember (also runnable manually
+  via `npm run setup:db`)
+- public/dictionary.db.zst: `dictionary.db` compressed with zstd instead (scripts/zstd-db.sh) —
+  also tracked in git, smaller than the `.zip` above, and the one actually fetched at runtime
+  (see `App.vue`'s `DICTIONARY_FILE`); since jeep-sqlite can't unzip zstd itself,
+  `ensureDatabaseFromUrl` in `browser-sqlite-driver.js` fetches and decompresses this one
+  client-side with `fzstd`
 
 ## Verification
 

@@ -188,13 +188,20 @@ async function toggleExpand(entryId, headword) {
 
 let driver = null;
 
+// Ships as dictionary.db.zst (zstd, smaller) rather than dictionary.db.zip
+// (DEFLATE) - see ensureDatabaseFromUrl's jsdoc. Both files are built and
+// tracked in git, so reverting to the DEFLATE path (e.g. if a browser's
+// zstd/fzstd decode ever needs bypassing) is just changing this extension
+// back to `.zip` - no other code to touch.
+const DICTIONARY_FILE = 'dictionary.db.zst';
+
 async function loadRealDictionary(force = false) {
   status.value = 'loading';
   errorMessage.value = '';
   try {
     await driver?.close();
     driver = null;
-    await ensureDatabaseFromUrl('dictionary', `${import.meta.env.BASE_URL}dictionary.db.zip`, { force });
+    await ensureDatabaseFromUrl('dictionary', `${import.meta.env.BASE_URL}${DICTIONARY_FILE}`, { force });
     driver = createBrowserDriver('dictionary', { readonly: true });
     await driver.open();
     status.value = 'ready';

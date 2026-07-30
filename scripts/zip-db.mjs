@@ -1,19 +1,21 @@
 // npm run build:db -- zip
 //
 // Compresses data/build/dictionary.db (scripts/assemble-sqlite.mjs's output)
-// into public/dictionary.db.zip, the only dictionary artifact that lives
-// under public/ — and so the only one `vite build` ships — since it's the
-// file actually tracked in git and fetched at runtime (see
-// ensureDatabaseFromUrl in src/dictionary/sqlite-drivers/browser-sqlite-driver.js).
-// jeep-sqlite's HTTP-import path natively unzips a `.zip` URL client-side via
-// JSZip, so this needs no bespoke decompression code on the app side — just
-// an entry named exactly `dictionary.db` inside the archive (jeep-sqlite
-// derives its IndexedDB key from that entry's filename, and it must match
-// the key the `.db` path would have produced, `dictionarySQLite.db`).
+// into public/dictionary.db.zip — one of the two dictionary artifacts
+// tracked in git and shipped under public/ (see scripts/zstd-db.sh for the
+// other, smaller one). jeep-sqlite's HTTP-import path natively unzips a
+// `.zip` URL client-side via JSZip, so this needs no bespoke decompression
+// code on the app side — just an entry named exactly `dictionary.db` inside
+// the archive (jeep-sqlite derives its IndexedDB key from that entry's
+// filename, and it must match the key the `.db` path would have produced,
+// `dictionarySQLite.db`).
 //
-// dictionary.db is full of repeated JSON text (tag arrays, etc.) and
-// compresses to roughly a third of its size — see PLAN-DICTIONARY-BUILD.md's
-// "Transfer compression" note.
+// This is the fallback/reference format: plain DEFLATE, decoded entirely by
+// jeep-sqlite's own bundled JSZip with no extra client-side code. See
+// ensureDatabaseFromUrl in src/dictionary/sqlite-drivers/browser-sqlite-driver.js
+// for how the app picks between this and dictionary.db.zst — switching back
+// to this format if the zstd path ever needs bypassing is a one-line change
+// there (point the URL at `.zip` instead of `.zst`; no other code to touch).
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

@@ -1,6 +1,6 @@
 // npm run screenshot
 //
-// Launches a Vite dev server against the real public/dictionary.db.zip, drives
+// Launches a Vite dev server against the real public/dictionary.db.zst, drives
 // the app in headless Chromium (Playwright, already a devDependency for
 // tests/browser), and searches "たける" — simultaneously the potential form
 // of 炊く/焚く ("to cook"/"to light a fire") and the reading of an archaic
@@ -13,7 +13,9 @@
 // furigana) are all visible in one shot. Saves the capture to
 // media/screenshot.png for README.md.
 //
-// Requires public/dictionary.db.zip to exist first (npm run build:db).
+// Requires public/dictionary.db.zst to exist first (npm run build:db) - the
+// file App.vue's loadRealDictionary actually fetches (see that file and
+// browser-sqlite-driver.js's ensureDatabaseFromUrl for the .zst/.zip switch).
 
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
@@ -23,12 +25,12 @@ import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
-const DB_PATH = path.join(ROOT, 'public/dictionary.db.zip');
+const DB_PATH = path.join(ROOT, 'public/dictionary.db.zst');
 const OUT_DIR = path.join(ROOT, 'media');
 const OUT_PATH = path.join(OUT_DIR, 'screenshot.png');
 
 if (!existsSync(DB_PATH)) {
-  console.error('public/dictionary.db.zip not found — run "npm run build:db" first.');
+  console.error('public/dictionary.db.zst not found — run "npm run build:db" first.');
   process.exit(1);
 }
 

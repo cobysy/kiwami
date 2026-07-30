@@ -134,8 +134,9 @@ driver implementations, which are the only pieces allowed to know which platform
         open instantly in the Node driver and load in well under a second in the browser
         driver too. The Node driver reads `data/build/dictionary.db` (extracted on demand from
         `public/dictionary.db.zip` via `ensureDictionaryDb()`, `scripts/unzip-db.mjs`); the
-        browser driver fetches `public/dictionary.db.zip` directly, matching how the app itself
-        loads it (see the size/path update on the Capacitor driver bullet above).
+        browser driver fetches `public/dictionary.db.zst` directly, matching how the app itself
+        loads it (see the 2026-07-30 update on the Capacitor driver bullet above for why `.zst`
+        rather than `.zip`).
 - [ ] Ship the dictionary DB (134MB raw / ~49MB zipped) bundled inside the native app instead
       of fetching it over the network — bundling `dictionary.db` as an app asset and copying
       it into the app's native local data directory (both platforms, via each driver's own
@@ -161,6 +162,17 @@ driver implementations, which are the only pieces allowed to know which platform
       native asset copied into the app's native data directory at install time, and native
       storage APIs would still need their own decompress-on-import step (e.g.
       `DecompressionStream`) that hasn't been built for the iOS/Electron drivers.
+
+      **Updated 2026-07-30**: the web build now fetches `public/dictionary.db.zst` (zstd, ~41MB)
+      rather than `public/dictionary.db.zip` (DEFLATE, ~55MB) described above — DEFLATE's 32KB
+      window leaves real redundancy on the table in a 100MB+ file that zstd's much larger window
+      reaches. Since jeep-sqlite's bundled unzip only understands DEFLATE, `ensureDatabaseFromUrl`
+      now fetches and decompresses the `.zst` file itself client-side (`fzstd`, a pure-JS
+      decoder) and writes the result directly into jeep-sqlite's own IndexedDB store, bypassing
+      its HTTP-import path rather than extending it. Both files are still built and tracked in
+      git from the same source database (`npm run build:db -- zip` / `-- zstd`); switching back
+      to the plain-DEFLATE path some future debugging session might want is a one-line change to
+      `App.vue`'s `DICTIONARY_FILE` constant, not a revert of this code.
 - [x] Query layer: pure logic built against the driver interface, callable and testable
       (e.g. via the dev harness or unit tests) independent of any UI. Done 2026-07-29,
       `src/dictionary/` — every sub-bullet below is implemented and covered by the

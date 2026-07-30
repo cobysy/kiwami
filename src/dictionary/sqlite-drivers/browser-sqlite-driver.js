@@ -10,6 +10,8 @@
 //   - `node_modules/sql.js/dist/sql-wasm.wasm` copied to `public/assets/sql-wasm.wasm`
 //     (documented in package.json's `postinstall` script)
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite';
+import { decompress } from 'fzstd';
+import localforage from 'localforage';
 
 let webStoreReady = null;
 
@@ -17,6 +19,37 @@ let webStoreReady = null;
 function ensureWebStore(sqlite) {
   webStoreReady ??= sqlite.initWebStore();
   return webStoreReady;
+}
+
+// jeep-sqlite's own IndexedDB store, replicated here (not imported - it's an
+// internal of the jeep-sqlite package, not part of its public API) so a
+// `.zst` URL can land its bytes in exactly the spot getFromHTTPRequest's
+// DEFLATE-only `.zip`/`.db` path would have put them: same localforage
+// database/store name jeep-sqlite's own `openStore('jeepSqliteStore',
+// 'databases')` creates, and the same `<database>SQLite.db` key its
+// `Database` class reads from on open() (see node_modules/jeep-sqlite's
+// components/jeep-sqlite.js and utils/database.js). This is a real coupling
+// to jeep-sqlite's internals rather than its documented API - if a
+// jeep-sqlite upgrade ever makes a zstd-imported database fail to open,
+// check this against that version's openStore()/Database constructor first.
+const JEEP_SQLITE_STORE_CONFIG = { name: 'jeepSqliteStore', storeName: 'databases', driver: [localforage.INDEXEDDB], version: 1 };
+
+// Fetches and decompresses a zstd-compressed database ourselves, since
+// jeep-sqlite's built-in HTTP-import path only understands raw `.db` or
+// DEFLATE-zipped `.zip` (see ensureDatabaseFromUrl's jsdoc for the size win
+// this buys over that format). fzstd is a pure-JS decoder - see
+// scripts/zstd-db.sh for why the build side is pinned to zstd level 19 to
+// stay inside the backreference-distance limit fzstd documents for
+// non-"ultra" archives.
+async function importZstdDatabase(database, url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Fetching ${url} failed: ${response.status} ${response.statusText}`);
+  const compressed = new Uint8Array(await response.arrayBuffer());
+  const bytes = decompress(compressed);
+  const store = localforage.createInstance(JEEP_SQLITE_STORE_CONFIG);
+  const key = `${database}SQLite.db`;
+  await store.removeItem(key);
+  await store.setItem(key, bytes);
 }
 
 /**
@@ -63,13 +96,22 @@ export function createBrowserDriver(database, options = {}) {
  * native drivers. Must run before `createBrowserDriver(name).open()` for
  * that same `name`.
  *
- * `url` must end in `.db` (or `.zip`) — jeep-sqlite's HTTP-import path
- * switches on the URL's file extension (see its `getFileExtensionInUrl`)
- * and silently no-ops on anything else, which is why the assembled
- * dictionary ships as `public/dictionary.db` rather than `.sqlite`
- * (see scripts/assemble-sqlite.mjs). Checked with `isDatabase()`, which —
- * unlike `isDBExists()` — looks at the store directly instead of requiring
- * a connection to already be open.
+ * `url` must end in `.db`, `.zip`, or `.zst`. `.db`/`.zip` go through
+ * jeep-sqlite's own HTTP-import path, which switches on the URL's file
+ * extension (see its `getFileExtensionInUrl`) and silently no-ops on
+ * anything else — which is also why the assembled dictionary ships as
+ * `public/dictionary.db` rather than `.sqlite` (see
+ * scripts/assemble-sqlite.mjs). `.zst` goes through `importZstdDatabase`
+ * above instead, since jeep-sqlite's bundled unzip only understands
+ * DEFLATE. Both `public/dictionary.db.zip` (scripts/zip-db.mjs) and
+ * `public/dictionary.db.zst` (scripts/zstd-db.sh) are built and tracked in
+ * git from the same source database, so switching which one the app
+ * fetches — e.g. reverting to the plain-DEFLATE path if the zstd one ever
+ * needs bypassing — is just changing the URL's extension at the call site
+ * (see src/App.vue's loadRealDictionary), no other code to touch.
+ * Existence is checked with `isDatabase()`, which — unlike `isDBExists()` —
+ * looks at the store directly instead of requiring a connection to already
+ * be open.
  *
  * `force` deletes any existing IndexedDB copy first: without it, a schema
  * change (e.g. a new table) ships a fresh `dictionary.db.zip` that browsers
@@ -99,6 +141,10 @@ export async function ensureDatabaseFromUrl(database, url, options = {}) {
     if (!hasRwConnection) await sqlite.closeConnection(database, false);
   }
   if (!exists || options.force) {
-    await sqlite.getFromHTTPRequest(url, false);
+    if (url.endsWith('.zst')) {
+      await importZstdDatabase(database, url);
+    } else {
+      await sqlite.getFromHTTPRequest(url, false);
+    }
   }
 }

@@ -20,8 +20,10 @@ function ensureJeepSqliteElement() {
 runDictionarySuite('browser (jeep-sqlite)', async () => {
   await ensureJeepSqliteElement();
   // Fetched once and cached in IndexedDB by jeep-sqlite; ensureDatabaseFromUrl
-  // no-ops on subsequent runs once it's present.
-  await ensureDatabaseFromUrl('dictionary', '/dictionary.db.zip');
+  // no-ops on subsequent runs once it's present. .zst is the format the app
+  // actually ships (see App.vue's DICTIONARY_FILE) - exercises
+  // importZstdDatabase, not jeep-sqlite's built-in DEFLATE unzip.
+  await ensureDatabaseFromUrl('dictionary', '/dictionary.db.zst');
   const driver = createBrowserDriver('dictionary', { readonly: true });
   await driver.open();
   return driver;
@@ -34,13 +36,13 @@ runDictionarySuite('browser (jeep-sqlite)', async () => {
 describe('reload with force', () => {
   it('re-fetches after closing the readonly driver', async () => {
     await ensureJeepSqliteElement();
-    await ensureDatabaseFromUrl('dictionary', '/dictionary.db.zip');
+    await ensureDatabaseFromUrl('dictionary', '/dictionary.db.zst');
     const driver = createBrowserDriver('dictionary', { readonly: true });
     await driver.open();
     await driver.close();
 
     await expect(
-      ensureDatabaseFromUrl('dictionary', '/dictionary.db.zip', { force: true })
+      ensureDatabaseFromUrl('dictionary', '/dictionary.db.zst', { force: true })
     ).resolves.toBeUndefined();
 
     const reopened = createBrowserDriver('dictionary', { readonly: true });
@@ -48,5 +50,26 @@ describe('reload with force', () => {
     const rows = await reopened.all('SELECT COUNT(*) as n FROM entries');
     expect(rows[0].n).toBeGreaterThan(0);
     await reopened.close();
+  });
+});
+
+// The .zip (DEFLATE) path is what ensureDatabaseFromUrl falls back to if the
+// .zst one ever needs bypassing (see its jsdoc) - not the suite's default,
+// but still exercised here so a regression in that fallback isn't only
+// noticed the day it's actually needed. Reuses the 'dictionary' name (rather
+// than a distinct one) with force:true, same as the "reload with force" test
+// above: jeep-sqlite's own unzip path names its IndexedDB entry after the
+// archive's internal file (always `dictionary.db` -> `dictionarySQLite.db`,
+// see zip-db.mjs), not the `database` argument, so a different logical name
+// here wouldn't actually land under a separate key.
+describe('legacy .zip (DEFLATE) path', () => {
+  it('loads the dictionary via jeep-sqlite\'s built-in unzip', async () => {
+    await ensureJeepSqliteElement();
+    await ensureDatabaseFromUrl('dictionary', '/dictionary.db.zip', { force: true });
+    const driver = createBrowserDriver('dictionary', { readonly: true });
+    await driver.open();
+    const rows = await driver.all('SELECT COUNT(*) as n FROM entries');
+    expect(rows[0].n).toBeGreaterThan(0);
+    await driver.close();
   });
 });
