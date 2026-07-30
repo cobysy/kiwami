@@ -96,8 +96,9 @@ This project's source code is licensed under the [MIT License](LICENSE).
 Bundled dictionary data and libraries come from third-party sources under their own licenses:
 
 - **[JMdict](https://www.edrdg.org/jmdict/j_jmdict.html)** (JMdict_e), from the [Electronic Dictionary Research and Development Group](https://www.edrdg.org/) — [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
+- **[KANJIDIC2](https://www.edrdg.org/wiki/index.php/KANJIDIC_Project)**, also from the [Electronic Dictionary Research and Development Group](https://www.edrdg.org/) — [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
 - **[Tatoeba](https://tatoeba.org/)** example sentences — [CC BY 2.0 FR](https://creativecommons.org/licenses/by/2.0/fr/)
 - **[kuromoji.js](https://github.com/takuyaa/kuromoji.js)** and its bundled IPADIC dictionary data — Apache 2.0 / LGPL
-- **[jconj-js](https://github.com/cobysy/jconj-js)**, a JS/TS port of the JMdictDB project's table-based verb/adjective conjugator ([yamagoya/jconj](https://github.com/yamagoya/jconj)) — MIT
+- **[jconj-js](https://github.com/cobysy/jconj-js)**, a TS/JS table-based verb/adjective conjugator by cobysy — MIT. It ports Stuart McGraw's Python [jconj](https://github.com/yamagoya/jconj), and its conjugation tables come from [JMdictDB](https://gitlab.com/yamagoya/jmdictdb) — GPL-2.0+
 
 See [NOTICE.md](NOTICE.md) for what each is used for.
