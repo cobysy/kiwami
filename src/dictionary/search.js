@@ -75,6 +75,26 @@ function fieldQuery({ table, alias, column }, whereExpr, value, facet) {
   };
 }
 
+// Characters that commonly follow a gloss's head word before trailing
+// annotation, e.g. "cat (esp. the domestic cat, Felis catus)" or "run, dash".
+// Used to tell a whole-word gloss match (query = "cat" against that gloss)
+// apart from a same-first-letters coincidence (query = "cat" against
+// "cattle (Bos taurus)") - both are a raw string prefix, but only the first
+// is the same word, so only the first belongs in the exact tier.
+const GLOSS_WORD_BOUNDARY_CHARS = [' ', ',', ';', ':', '.', '!', '?', '(', ')', '-', "'"];
+
+// Exact tier for glosses: a literal full-string match (`gloss = query`, e.g.
+// "to eat"), OR the query is the whole head word of the gloss - anything up
+// to the next boundary character - with annotation trailing after it.
+function glossExactQuery(field, value, facet) {
+  const whereExpr = `(${field.alias}.${field.column} = ? OR ${GLOSS_WORD_BOUNDARY_CHARS
+    .map(() => `${field.alias}.${field.column} LIKE ? ESCAPE '\\'`).join(' OR ')})`;
+  return {
+    sql: `SELECT DISTINCT ${field.alias}.entry_id AS id FROM ${field.table} ${field.alias} JOIN entries e ON e.id = ${field.alias}.entry_id WHERE ${whereExpr} ${facet.clause}`,
+    params: [value, ...GLOSS_WORD_BOUNDARY_CHARS.map((ch) => `${value}${ch}%`), ...facet.params],
+  };
+}
+
 // `texts.kanjiReading` and `texts.gloss` are usually the same string - they
 // only diverge when the query was typed in romaji (see search()), since a
 // romaji-converted kana query makes sense against kanji/reading text but
@@ -87,7 +107,7 @@ async function tierEntryIds(driver, tier, texts, options) {
     return collectIds(driver, [
       fieldQuery(FIELDS[0], `${FIELDS[0].alias}.${FIELDS[0].column} = ?`, kanjiReading, facet),
       fieldQuery(FIELDS[1], `${FIELDS[1].alias}.${FIELDS[1].column} = ?`, kanjiReading, facet),
-      fieldQuery(FIELDS[2], `${FIELDS[2].alias}.${FIELDS[2].column} = ?`, gloss, facet),
+      glossExactQuery(FIELDS[2], gloss, facet),
     ]);
   }
 

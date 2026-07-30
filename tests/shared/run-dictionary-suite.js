@@ -65,6 +65,23 @@ export function runDictionarySuite(label, createDriver) {
         expect(results.map((r) => r.id)).toContain(1358280);
       });
 
+      it('treats the annotated head word of a gloss as an exact match, ranked above an unrelated word that merely shares a text prefix', async () => {
+        // 猫 (1467640, "cat") glosses as "cat (esp. the domestic cat, Felis
+        // catus)" - not literally "cat", so a naive `gloss = query` check
+        // misses it. Meanwhile 牛 (1231490, "cattle") glosses as "cattle
+        // (Bos taurus)", which does satisfy a raw `LIKE 'cat%'` prefix scan
+        // since "cattle" starts with the same three letters - a same-
+        // first-letters coincidence, not the same word. Query "cat" should
+        // recognize the former as an exact whole-word hit and must not let
+        // the latter outrank it.
+        const { tier, results } = await search(driver, 'cat');
+        expect(tier).toBe('exact');
+        const ids = results.map((r) => r.id);
+        expect(ids).toContain(1467640);
+        expect(ids).toContain(1231490);
+        expect(ids.indexOf(1467640)).toBeLessThan(ids.indexOf(1231490));
+      });
+
       it('falls through to the prefix tier when no exact match exists', async () => {
         const { tier, results } = await search(driver, 'たべ');
         expect(tier).toBe('prefix');
