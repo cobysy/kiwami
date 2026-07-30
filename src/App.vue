@@ -15,6 +15,8 @@ import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-
 import { search, fuzzySearch, deconjugate, fetchSentencesForEntry, fetchKanjiDetails, conjugate } from './dictionary/index.js';
 import { DIALECT_OPTIONS } from './dictionary/dialect-labels.js';
 import { priorityLabel } from './dictionary/frequency-labels.js';
+import { posLabel, posShortLabel, posCategory } from './dictionary/pos-labels.js';
+import { miscLabel } from './dictionary/misc-labels.js';
 import { version as appVersion } from '../package.json';
 
 // Tooltip text for a result's raw priority tags (news1, nf12, ...) - the
@@ -481,7 +483,7 @@ onMounted(async () => {
             <div class="result-row">
               <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
               <span v-if="r.kanji.length" class="result-reading">{{ r.readings.join('、') }}</span>
-              <span v-for="p in r.pos" :key="p" class="tag tag-pos">{{ p }}</span>
+              <span v-for="p in r.pos" :key="p" class="tag tag-pos" :class="`tag-pos-${posCategory(p)}`" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
               <span v-for="d in r.dialect" :key="d" class="tag tag-dialect">{{ d }}</span>
               <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
             </div>
@@ -495,8 +497,8 @@ onMounted(async () => {
                   <li v-for="k in kanjiFor(r.id).kanji" :key="k.literal" class="kanji-item">
                     <span class="kanji-literal">{{ k.literal }}</span>
                     <span v-if="k.strokeCount" class="kanji-strokes">{{ k.strokeCount }} strokes</span>
-                    <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On</span>{{ k.onyomi.join('、') }}</span>
-                    <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun</span>{{ k.kunyomi.join('、') }}</span>
+                    <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On'yomi</span>{{ k.onyomi.join('、') }}</span>
+                    <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun'yomi</span>{{ k.kunyomi.join('、') }}</span>
                   </li>
                 </ul>
               </div>
@@ -545,8 +547,8 @@ onMounted(async () => {
               <div class="result-row">
                 <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
                 <span v-if="r.kanji.length" class="result-reading">{{ r.readings.join('、') }}</span>
-                <span v-for="p in r.pos" :key="p" class="tag tag-pos">{{ p }}</span>
-                <span v-for="l in r.labels" :key="l" class="tag tag-label">{{ l }}</span>
+                <span v-for="p in r.pos" :key="p" class="tag tag-pos" :class="`tag-pos-${posCategory(p)}`" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
+                <span v-for="l in r.labels" :key="l" class="tag tag-label">{{ miscLabel(l) }}</span>
                 <span v-for="d in r.dialect" :key="d" class="tag tag-dialect">{{ d }}</span>
                 <span v-if="r.priority.length" class="score-badge" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
               </div>
@@ -560,8 +562,8 @@ onMounted(async () => {
                     <li v-for="k in kanjiFor(r.id).kanji" :key="k.literal" class="kanji-item">
                       <span class="kanji-literal">{{ k.literal }}</span>
                       <span v-if="k.strokeCount" class="kanji-strokes">{{ k.strokeCount }} strokes</span>
-                      <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On</span>{{ k.onyomi.join('、') }}</span>
-                      <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun</span>{{ k.kunyomi.join('、') }}</span>
+                      <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On'yomi</span>{{ k.onyomi.join('、') }}</span>
+                      <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun'yomi</span>{{ k.kunyomi.join('、') }}</span>
                     </li>
                   </ul>
                 </div>
@@ -616,7 +618,7 @@ onMounted(async () => {
             <div class="result-row">
               <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
               <span class="result-reading">{{ r.readings.join('、') }}</span>
-              <span v-for="p in r.pos" :key="p" class="tag tag-pos">{{ p }}</span>
+              <span v-for="p in r.pos" :key="p" class="tag tag-pos" :class="`tag-pos-${posCategory(p)}`" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
               <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
             </div>
             <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
@@ -629,8 +631,8 @@ onMounted(async () => {
                   <li v-for="k in kanjiFor(r.id).kanji" :key="k.literal" class="kanji-item">
                     <span class="kanji-literal">{{ k.literal }}</span>
                     <span v-if="k.strokeCount" class="kanji-strokes">{{ k.strokeCount }} strokes</span>
-                    <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On</span>{{ k.onyomi.join('、') }}</span>
-                    <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun</span>{{ k.kunyomi.join('、') }}</span>
+                    <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On'yomi</span>{{ k.onyomi.join('、') }}</span>
+                    <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun'yomi</span>{{ k.kunyomi.join('、') }}</span>
                   </li>
                 </ul>
               </div>
@@ -679,7 +681,7 @@ onMounted(async () => {
               <div class="result-row">
                 <span class="result-headword">{{ r.kanji.join('、') || r.readings.join('、') }}</span>
                 <span class="result-reading">{{ r.readings.join('、') }}</span>
-                <span v-for="p in r.pos" :key="p" class="tag tag-pos">{{ p }}</span>
+                <span v-for="p in r.pos" :key="p" class="tag tag-pos" :class="`tag-pos-${posCategory(p)}`" :title="posLabel(p)">{{ posShortLabel(p) }}</span>
                 <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
               </div>
               <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
@@ -692,8 +694,8 @@ onMounted(async () => {
                     <li v-for="k in kanjiFor(r.id).kanji" :key="k.literal" class="kanji-item">
                       <span class="kanji-literal">{{ k.literal }}</span>
                       <span v-if="k.strokeCount" class="kanji-strokes">{{ k.strokeCount }} strokes</span>
-                      <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On</span>{{ k.onyomi.join('、') }}</span>
-                      <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun</span>{{ k.kunyomi.join('、') }}</span>
+                      <span v-if="k.onyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">On'yomi</span>{{ k.onyomi.join('、') }}</span>
+                      <span v-if="k.kunyomi.length" class="kanji-yomi"><span class="kanji-yomi-tag">Kun'yomi</span>{{ k.kunyomi.join('、') }}</span>
                     </li>
                   </ul>
                 </div>
@@ -1368,7 +1370,23 @@ html, body {
 }
 
 .tag-label {
-  color: var(--text-faint);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.tag-pos-verb {
+  color: #7dabf8;
+  border-color: color-mix(in srgb, #7dabf8 40%, var(--border));
+}
+
+.tag-pos-adjective {
+  color: #d78be0;
+  border-color: color-mix(in srgb, #d78be0 40%, var(--border));
+}
+
+.tag-pos-archaic {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
 }
 
 .result-gloss {
