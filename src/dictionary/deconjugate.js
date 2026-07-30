@@ -23,6 +23,7 @@
 import { romajiToHiragana } from './romaji.js';
 import { fetchEntriesByIds } from './dictionary-entries.js';
 import { getTokenizer } from './tokenizer.js';
+import { hasExactGlossMatch } from './search.js';
 
 // Godan (u-verb) consonant rows: dictionary-form ending kana -> its a-row
 // (used for negative/passive/causative stems) and e-row (potential stem).
@@ -179,6 +180,18 @@ async function kuromojiCandidates(query) {
  */
 export async function deconjugate(driver, queryText) {
   const trimmed = (queryText ?? '').trim();
+  if (!trimmed) return [];
+
+  // An English word that's coincidentally all latin consonant/vowel runs
+  // (e.g. "mountain" -> もうんたいん) converts wholesale via romajiToHiragana
+  // even though the user meant English, not romaji - and from there
+  // kuromoji can mis-segment the result into a plausible-looking conjugated
+  // form of some unrelated verb (see isPlainConjugatedForm above for the
+  // "あんとん" precedent of this same class of bug). If the raw text already
+  // matches a real gloss, that's the correct interpretation, so don't also
+  // chase the coincidental romaji reading.
+  if (await hasExactGlossMatch(driver, trimmed)) return [];
+
   // Same romaji handling as search() - a query typed in romaji (e.g.
   // "kirawareru") needs converting to kana (きらわれる) before the suffix
   // rules below can recognize it; romajiToHiragana falls back to null for

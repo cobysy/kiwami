@@ -95,6 +95,20 @@ function glossExactQuery(field, value, facet) {
   };
 }
 
+// Whether `query` has an exact-tier gloss hit (see glossExactQuery) - used by
+// deconjugate() to recognize a real English gloss (e.g. "mountain") before it
+// gets treated as a conjugated-verb guess. wanakana's romaji conversion
+// absorbs almost any latin consonant/vowel run into some kana (see
+// romaji.js), so an ordinary English word can come out looking like valid
+// romaji and, from there, get coincidentally parsed by kuromoji as some
+// verb's conjugated form - an exact gloss match is the signal that the
+// English-word reading is the correct one, not the coincidental one.
+export async function hasExactGlossMatch(driver, query) {
+  const { sql, params } = glossExactQuery(FIELDS[2], query, { clause: '', params: [] });
+  const rows = await driver.all(sql, params);
+  return rows.length > 0;
+}
+
 // `texts.kanjiReading` and `texts.gloss` are usually the same string - they
 // only diverge when the query was typed in romaji (see search()), since a
 // romaji-converted kana query makes sense against kanji/reading text but
