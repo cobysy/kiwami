@@ -41,17 +41,15 @@ The build pipeline produces:
   directly by node:sqlite-backed tooling (tests/node/dictionary.test.js, scripts/verify-db.mjs).
   Kept out of public/ so `vite build` never ships this uncompressed 134MB copy — nothing in
   the browser bundle reads it directly, only its compressed form below
-- public/dictionary.db.zip: `dictionary.db` compressed to ~1/3 its size (scripts/zip-db.mjs) —
-  tracked in git; jeep-sqlite's HTTP-import path natively unzips a `.zip` URL client-side, so
-  no bespoke decompression code is needed. On a fresh clone, `scripts/unzip-db.mjs`'s
-  `ensureDictionaryDb()` re-extracts `data/build/dictionary.db` from it on demand, the first
-  time Node-side tooling needs it — no separate setup step to remember (also runnable manually
-  via `npm run setup:db`)
-- public/dictionary.db.zst: `dictionary.db` compressed with zstd instead (scripts/zstd-db.sh) —
-  also tracked in git, smaller than the `.zip` above, and the one actually fetched at runtime
-  (see `App.vue`'s `DICTIONARY_FILE`); since jeep-sqlite can't unzip zstd itself,
+- public/dictionary.db.zst: `dictionary.db` compressed with zstd (scripts/zstd-db.sh, requires
+  the `zstd` CLI) — the file actually tracked in git and fetched at runtime (see `App.vue`'s
+  `DICTIONARY_FILE`). Since jeep-sqlite's bundled HTTP-import only unzips DEFLATE,
   `ensureDatabaseFromUrl` in `browser-sqlite-driver.js` fetches and decompresses this one
-  client-side with `fzstd`
+  client-side itself with `fzstd`, then writes the bytes into jeep-sqlite's IndexedDB store
+  directly. On a fresh clone, `scripts/unzip-db.mjs`'s `ensureDictionaryDb()` decompresses
+  `data/build/dictionary.db` back out of it on demand (same `fzstd` decoder, run in Node), the
+  first time Node-side tooling needs it — no separate setup step to remember (also runnable
+  manually via `npm run setup:db`)
 
 ## Verification
 

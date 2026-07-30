@@ -29,17 +29,14 @@
 // Node-side tooling reads it straight off disk (tests/node/dictionary.test.js,
 // scripts/verify-db.mjs, scripts/screenshot.mjs). What actually ships to
 // public/ — and is what's tracked in git and fetched at runtime — is
-// public/dictionary.db.zip, produced from this file by `npm run build:db --
-// zip` (scripts/zip-db.mjs); `npm run setup:db` (scripts/unzip-db.mjs, wired
-// into `postinstall`) extracts this file back out of that zip on a fresh
-// clone, so resuming dev still needs no network access despite rebuilding
-// from source needing three external hosts and a couple of minutes. Kept
-// out of public/ specifically so `vite build`'s publicDir copy never ships
-// this uncompressed 134MB copy alongside the 49MB zip nothing in the
-// browser bundle references anymore. Zip entries are still named `dictionary.db`
-// rather than `.sqlite`: jeep-sqlite's HTTP-import path picks its strategy
-// from the URL's file extension and only recognizes `.db`/`.zip` (see
-// `ensureDatabaseFromUrl` in src/dictionary/sqlite-drivers/browser-sqlite-driver.js).
+// public/dictionary.db.zst, produced from this file by `npm run build:db --
+// zstd` (scripts/zstd-db.sh); `npm run setup:db` (scripts/unzip-db.mjs, wired
+// into `postinstall`) decompresses this file back out of that .zst on a
+// fresh clone, so resuming dev still needs no network access despite
+// rebuilding from source needing three external hosts and a couple of
+// minutes. Kept out of public/ specifically so `vite build`'s publicDir
+// copy never ships this uncompressed 134MB copy alongside the ~41MB .zst
+// nothing in the browser bundle references anymore.
 
 import { createReadStream, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';

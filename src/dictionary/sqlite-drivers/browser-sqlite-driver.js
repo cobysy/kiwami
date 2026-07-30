@@ -96,25 +96,20 @@ export function createBrowserDriver(database, options = {}) {
  * native drivers. Must run before `createBrowserDriver(name).open()` for
  * that same `name`.
  *
- * `url` must end in `.db`, `.zip`, or `.zst`. `.db`/`.zip` go through
- * jeep-sqlite's own HTTP-import path, which switches on the URL's file
- * extension (see its `getFileExtensionInUrl`) and silently no-ops on
- * anything else — which is also why the assembled dictionary ships as
- * `public/dictionary.db` rather than `.sqlite` (see
- * scripts/assemble-sqlite.mjs). `.zst` goes through `importZstdDatabase`
- * above instead, since jeep-sqlite's bundled unzip only understands
- * DEFLATE. Both `public/dictionary.db.zip` (scripts/zip-db.mjs) and
- * `public/dictionary.db.zst` (scripts/zstd-db.sh) are built and tracked in
- * git from the same source database, so switching which one the app
- * fetches — e.g. reverting to the plain-DEFLATE path if the zstd one ever
- * needs bypassing — is just changing the URL's extension at the call site
- * (see src/App.vue's loadRealDictionary), no other code to touch.
- * Existence is checked with `isDatabase()`, which — unlike `isDBExists()` —
- * looks at the store directly instead of requiring a connection to already
- * be open.
+ * `url` must end in `.db`, `.zip`, or `.zst`. `.zst` — what the app actually
+ * ships, `public/dictionary.db.zst` (scripts/zstd-db.sh) — goes through
+ * `importZstdDatabase` above, since jeep-sqlite's bundled unzip only
+ * understands DEFLATE. `.db`/`.zip` instead go through jeep-sqlite's own
+ * HTTP-import path, which switches on the URL's file extension (see its
+ * `getFileExtensionInUrl`) and silently no-ops on anything else; nothing in
+ * this project builds either of those anymore, but the branch costs nothing
+ * to keep and jeep-sqlite still understands both natively if one's ever
+ * produced again. Existence is checked with `isDatabase()`, which — unlike
+ * `isDBExists()` — looks at the store directly instead of requiring a
+ * connection to already be open.
  *
  * `force` deletes any existing IndexedDB copy first: without it, a schema
- * change (e.g. a new table) ships a fresh `dictionary.db.zip` that browsers
+ * change (e.g. a new table) ships a fresh `dictionary.db.zst` that browsers
  * with an already-populated store silently never re-fetch, since `exists`
  * is already true.
  *

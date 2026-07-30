@@ -1,9 +1,11 @@
-// Extracts data/build/dictionary.db from public/dictionary.db.zip (the file
-// tracked in git, see scripts/zip-db.mjs) if it isn't already there.
+// Decompresses data/build/dictionary.db from public/dictionary.db.zst (the
+// file tracked in git, see scripts/zstd-db.sh) if it isn't already there.
 // Deliberately extracted outside public/ — nothing in the browser bundle
-// reads the raw file (jeep-sqlite fetches the .zip directly), so keeping it
-// out of public/ means `vite build` never ships this uncompressed 134MB
-// copy alongside the 49MB zip.
+// reads the raw file (the browser driver fetches the .zst directly and
+// decompresses it itself — see ensureDatabaseFromUrl in
+// src/dictionary/sqlite-drivers/browser-sqlite-driver.js), so keeping it out
+// of public/ means `vite build` never ships this uncompressed 134MB copy
+// alongside the ~41MB .zst.
 //
 // Imported directly by every bit of node:sqlite-backed tooling that needs
 // the raw file — tests/node/dictionary.test.js, scripts/verify-db.mjs — so
@@ -14,10 +16,10 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import JSZip from 'jszip';
+import { decompress } from 'fzstd';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(__dirname, '../public/dictionary.db.zip');
+const SRC = path.join(__dirname, '../public/dictionary.db.zst');
 const DEST_DIR = path.join(__dirname, '../data/build');
 const DEST = path.join(DEST_DIR, 'dictionary.db');
 
@@ -25,12 +27,8 @@ export async function ensureDictionaryDb() {
   if (existsSync(DEST)) return DEST;
   if (!existsSync(SRC)) throw new Error(`${SRC} not found.`);
 
-  const zip = await JSZip.loadAsync(readFileSync(SRC));
-  const entry = zip.file('dictionary.db');
-  if (!entry) throw new Error(`${SRC} has no "dictionary.db" entry.`);
-
   mkdirSync(DEST_DIR, { recursive: true });
-  writeFileSync(DEST, await entry.async('nodebuffer'));
+  writeFileSync(DEST, decompress(readFileSync(SRC)));
   return DEST;
 }
 

@@ -18,16 +18,13 @@
 #   furigana, compounds           one normalized-data build stage each
 #   db                            assemble everything into dictionary.db
 #                                  (scripts/assemble-sqlite.mjs)
-#   zip                           compress dictionary.db to dictionary.db.zip
-#                                  (DEFLATE, via JSZip - scripts/zip-db.mjs)
 #   zstd                          compress dictionary.db to dictionary.db.zst
-#                                  (zstd -19, smaller than zip - scripts/zstd-db.sh)
-#   build-all                     all eight build stages above, in dependency order
+#                                  (zstd -19 - scripts/zstd-db.sh), the file
+#                                  tracked in git and fetched at runtime (see
+#                                  ensureDatabaseFromUrl in
+#                                  src/dictionary/sqlite-drivers/browser-sqlite-driver.js)
+#   build-all                     all seven build stages above, in dependency order
 #   all                           fetch-all then build-all
-#
-# zip and zstd both ship in public/ - see
-# src/dictionary/sqlite-drivers/browser-sqlite-driver.js's ensureDatabaseFromUrl
-# for how the app picks between them.
 #
 # Extra args after the step name are forwarded, e.g.:
 #   npm run build:db -- jmdict --force
@@ -43,7 +40,7 @@ STEP="${1:-}"
 
 usage() {
   echo "Usage: npm run build:db -- <step> [args...]"
-  echo "Steps: jmdict kanjidic tatoeba fetch-all entries kanji sentences furigana compounds db zip zstd build-all all"
+  echo "Steps: jmdict kanjidic tatoeba fetch-all entries kanji sentences furigana compounds db zstd build-all all"
   exit 1
 }
 
@@ -62,7 +59,6 @@ build_all() {
   node "$SCRIPT_DIR/build-furigana.mjs"
   node "$SCRIPT_DIR/build-compounds.mjs"
   node "$SCRIPT_DIR/assemble-sqlite.mjs"
-  node "$SCRIPT_DIR/zip-db.mjs"
   bash "$SCRIPT_DIR/zstd-db.sh"
 }
 
@@ -77,7 +73,6 @@ case "$STEP" in
   furigana)  node "$SCRIPT_DIR/build-furigana.mjs" ;;
   compounds) node "$SCRIPT_DIR/build-compounds.mjs" ;;
   db)        node "$SCRIPT_DIR/assemble-sqlite.mjs" ;;
-  zip)       node "$SCRIPT_DIR/zip-db.mjs" ;;
   zstd)      bash "$SCRIPT_DIR/zstd-db.sh" ;;
   build-all) build_all ;;
   all)       fetch_all; build_all ;;

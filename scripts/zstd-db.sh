@@ -2,13 +2,18 @@
 # npm run build:db -- zstd
 #
 # Compresses data/build/dictionary.db (scripts/assemble-sqlite.mjs's output)
-# into public/dictionary.db.zst - a stronger, larger-window codec than the
-# DEFLATE `npm run build:db -- zip` step produces, shipped alongside (not
-# instead of) dictionary.db.zip so the app can switch between the two by
-# changing one URL - see src/dictionary/sqlite-drivers/browser-sqlite-driver.js's
-# ensureDatabaseFromUrl for where that switch lives and why DEFLATE's 32KB
-# window leaves real bytes on the table in a 100MB+ file that zstd's much
-# larger window can reach.
+# into public/dictionary.db.zst - the file tracked in git and fetched at
+# runtime (see ensureDatabaseFromUrl in
+# src/dictionary/sqlite-drivers/browser-sqlite-driver.js). Also what
+# scripts/unzip-db.mjs decompresses back into data/build/dictionary.db for
+# Node-side tooling (tests/node/dictionary.test.js, scripts/verify-db.mjs) on
+# a fresh clone, so resuming dev needs no network access.
+#
+# zstd rather than DEFLATE (a plain zip) because DEFLATE's 32KB window can't
+# reach redundancy spread across a 100MB+ file the way zstd's much larger
+# window can - a real difference, not a config tweak: DEFLATE at max
+# settings and zstd here compress this database to meaningfully different
+# sizes.
 #
 # Requires the `zstd` CLI (macOS: `brew install zstd`; Debian/Ubuntu:
 # `apt install zstd`) - a system tool, same as fetch-jmdict.sh's curl/gunzip,

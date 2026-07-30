@@ -54,23 +54,17 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   (a filesystem dir in Node, a URL prefix in the browser). Runs automatically on `npm install`
   (`postinstall`).
 - `npm run build:db -- db` — assembles `data/build/dictionary.db`. Kept out of `public/` so
-  `vite build` never ships this uncompressed 134MB copy — see `npm run build:db -- zip` below.
-- `npm run build:db -- zip` — compresses it to `public/dictionary.db.zip` (~1/3 the size, named
-  `.zip` rather than leaving it as `.db` so jeep-sqlite's HTTP-import path, which switches on
-  URL file extension, fetches and unzips it client-side natively — no app-side decompression
-  code needed (`scripts/zip-db.mjs`, `ensureDatabaseFromUrl` in `browser-sqlite-driver.js`).
-- `npm run build:db -- zstd` — compresses it to `public/dictionary.db.zst` instead (zstd level
-  19, requires the `zstd` CLI — `brew install zstd`), noticeably smaller than `.zip` since
-  DEFLATE's 32KB window can't reach redundancy spread across a 100MB+ file the way zstd's much
-  larger one can. This is the format the app actually fetches (see `App.vue`'s
-  `DICTIONARY_FILE`); since jeep-sqlite's bundled unzip only understands DEFLATE,
-  `ensureDatabaseFromUrl` decompresses this one itself client-side with `fzstd` and writes the
-  bytes into jeep-sqlite's own IndexedDB store directly (`scripts/zstd-db.sh`,
-  `importZstdDatabase` in `browser-sqlite-driver.js`). Both files are built and tracked in git
-  from the same source database — switching back to the plain-DEFLATE `.zip` is a one-line
-  change to `DICTIONARY_FILE`, no other code to touch.
-- `npm run setup:db` — the reverse: extracts `data/build/dictionary.db` back out of the
-  tracked `.zip`, for the node:sqlite-backed tooling that reads it directly. A manual escape
+  `vite build` never ships this uncompressed 134MB copy — see `npm run build:db -- zstd` below.
+- `npm run build:db -- zstd` — compresses it to `public/dictionary.db.zst` (zstd level 19,
+  requires the `zstd` CLI — `brew install zstd`) — the file actually tracked in git and fetched
+  at runtime. Named `.zst` rather than leaving it as `.db` so `ensureDatabaseFromUrl` in
+  `browser-sqlite-driver.js` knows to fetch and decompress it itself with `fzstd` (a pure-JS
+  decoder) before writing the bytes into jeep-sqlite's IndexedDB store directly — jeep-sqlite's
+  own HTTP-import path only understands raw `.db` or DEFLATE-zipped `.zip`, and DEFLATE's 32KB
+  window can't reach redundancy spread across a 100MB+ file the way zstd's much larger window
+  can (`scripts/zstd-db.sh`, `importZstdDatabase` in `browser-sqlite-driver.js`).
+- `npm run setup:db` — the reverse: decompresses `data/build/dictionary.db` back out of the
+  tracked `.zst`, for the node:sqlite-backed tooling that reads it directly. A manual escape
   hatch — in practice that tooling (`tests/node/dictionary.test.js`, `scripts/verify-db.mjs`)
   calls the same `ensureDictionaryDb()` itself on demand, so a fresh clone needs no separate
   setup step or network access to resume dev (`scripts/unzip-db.mjs`).
