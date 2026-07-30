@@ -185,26 +185,42 @@ const ARCHAIC_POS = new Set([
   'vn', 'vr', 'vs-c',
 ]);
 
-// Categorizes a pos tag for tag-pill coloring: 'archaic' > 'verb' > 'adjective'
-// > 'other' (nouns, particles, adverbs, etc. - no dedicated color, just the
-// default tag style).
+// Every pos tag in the JMdict_e DTD (verified against the built DB's actual
+// distinct entry_senses.pos values) resolves to exactly one of these 8
+// buckets - nothing is left to fall through to an uncolored 'other', which
+// previously left common categories like noun/interjection uncolored just
+// because they weren't verbs or adjectives.
+// Precedence: 'archaic' > 'adjective' > 'verb' > 'noun' > 'adverb' >
+// 'interjection' > 'expression' > 'function', checked in that order so e.g.
+// an archaic verb (v2r-k) is flagged archaic first.
 export function posCategory(tag) {
   if (ARCHAIC_POS.has(tag)) return 'archaic';
-  if (tag.startsWith('adj-')) return 'adjective';
-  if (tag.startsWith('v')) return 'verb';
+  if (tag.startsWith('adj-') || tag === 'aux-adj') return 'adjective';
+  if (tag.startsWith('v') || tag === 'aux-v' || tag === 'cop') return 'verb';
+  if (tag.startsWith('n') || ['ctr', 'num', 'pn', 'pref', 'suf'].includes(tag)) return 'noun';
+  if (tag === 'adv' || tag === 'adv-to') return 'adverb';
+  if (tag === 'int') return 'interjection';
+  if (tag === 'exp') return 'expression';
+  if (['prt', 'conj', 'aux', 'unc'].includes(tag)) return 'function';
   return 'other';
 }
 
 // Pill color per posCategory() bucket, defined here rather than as CSS
 // classes in App.vue so a tag's color travels with its categorization logic.
 // 'archaic' reuses misc-labels.js's archaic red so "old usage" reads as one
-// consistent color across pos and misc pills; 'other' has no entry, which
-// falls back to the pill's default muted color (nouns/particles/adverbs
-// aren't distinguished by color).
+// consistent color across pos and misc pills. No 'other' entry - posCategory
+// never actually returns it for a known DTD tag (see above), so it's a
+// defensive fallback for an unrecognized future tag only, not a bucket any
+// current pill lands in.
 const POS_CATEGORY_COLORS = {
   archaic: '#ff7a7a',
   verb: '#7dabf8',
   adjective: '#d78be0',
+  noun: '#4dd9e8',
+  adverb: '#b5e64d',
+  interjection: '#ff9a5c',
+  expression: '#e8c14d',
+  function: '#9fa8da',
 };
 
 export function posColor(tag) {
