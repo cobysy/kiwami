@@ -17,6 +17,7 @@ import { DIALECT_OPTIONS, dialectColor } from './dictionary/dialect-labels.js';
 import { priorityLabel, priorityColor } from './dictionary/frequency-labels.js';
 import { posLabel, posShortLabel, posColor } from './dictionary/pos-labels.js';
 import { miscLabel, miscColor } from './dictionary/misc-labels.js';
+import { lsourceLangLabel } from './dictionary/lsource-labels.js';
 import { version as appVersion } from '../package.json';
 
 // Tooltip text for a result's raw priority tags (news1, nf12, ...) - the
@@ -24,6 +25,20 @@ import { version as appVersion } from '../package.json';
 // badge stays terse and the decoded meaning is a hover-away.
 function priorityTitle(tags) {
   return tags.map((tag) => `${tag}: ${priorityLabel(tag)}`).join('\n');
+}
+
+// Renders a result's loanword source info (JMdict lsource, e.g. アンニョン's
+// "hi; hey" glosses sourced from Korean "annyeong") as "from Korean:
+// annyeong" - or "partly from X" / just "from X" with no source word when
+// JMdict recorded ls_type="part" or left the element empty. '' (not null)
+// when there's nothing to show, so templates can just check truthiness.
+function lsourceText(lsources) {
+  if (!lsources || lsources.length === 0) return '';
+  return lsources.map((ls) => {
+    const lang = lsourceLangLabel(ls.lang);
+    const label = ls.partial ? `partly from ${lang}` : `from ${lang}`;
+    return ls.text ? `${label}: ${ls.text}` : label;
+  }).join('; ');
 }
 
 // Dictionary DB load lifecycle: 'idle' | 'loading' | 'ready' | 'error'. Drives
@@ -500,7 +515,7 @@ onMounted(async () => {
               <span v-for="d in r.dialect" :key="d" class="tag tag-dialect" :style="{ '--tag-color': dialectColor(d) }">{{ d }}</span>
               <span v-if="r.priority.length" class="score-badge" :style="{ '--tag-color': priorityColor(r.priority) }" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
             </div>
-            <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+            <p class="result-gloss" :title="[r.glosses.join('; '), lsourceText(r.lsources)].filter(Boolean).join(' — ')">{{ r.glosses.join('; ') }}<span v-if="lsourceText(r.lsources)" class="result-lsource"> ({{ lsourceText(r.lsources) }})</span></p>
             <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
               <div v-if="r.kanji.length" class="kanji-details">
                 <p class="detail-label">Kanji</p>
@@ -565,7 +580,7 @@ onMounted(async () => {
                 <span v-for="d in r.dialect" :key="d" class="tag tag-dialect" :style="{ '--tag-color': dialectColor(d) }">{{ d }}</span>
                 <span v-if="r.priority.length" class="score-badge" :style="{ '--tag-color': priorityColor(r.priority) }" :title="priorityTitle(r.priority)">{{ r.commonness_score }}</span>
               </div>
-              <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+              <p class="result-gloss" :title="[r.glosses.join('; '), lsourceText(r.lsources)].filter(Boolean).join(' — ')">{{ r.glosses.join('; ') }}<span v-if="lsourceText(r.lsources)" class="result-lsource"> ({{ lsourceText(r.lsources) }})</span></p>
               <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
                 <div v-if="r.kanji.length" class="kanji-details">
                   <p class="detail-label">Kanji</p>
@@ -636,7 +651,7 @@ onMounted(async () => {
               <span v-for="d in r.dialect" :key="d" class="tag tag-dialect" :style="{ '--tag-color': dialectColor(d) }">{{ d }}</span>
               <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
             </div>
-            <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+            <p class="result-gloss" :title="[r.glosses.join('; '), lsourceText(r.lsources)].filter(Boolean).join(' — ')">{{ r.glosses.join('; ') }}<span v-if="lsourceText(r.lsources)" class="result-lsource"> ({{ lsourceText(r.lsources) }})</span></p>
             <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
               <div v-if="r.kanji.length" class="kanji-details">
                 <p class="detail-label">Kanji</p>
@@ -701,7 +716,7 @@ onMounted(async () => {
                 <span v-for="d in r.dialect" :key="d" class="tag tag-dialect" :style="{ '--tag-color': dialectColor(d) }">{{ d }}</span>
                 <span class="score-badge">Δ{{ r.distance.toFixed(2) }}</span>
               </div>
-              <p class="result-gloss" :title="r.glosses.join('; ')">{{ r.glosses.join('; ') }}</p>
+              <p class="result-gloss" :title="[r.glosses.join('; '), lsourceText(r.lsources)].filter(Boolean).join(' — ')">{{ r.glosses.join('; ') }}<span v-if="lsourceText(r.lsources)" class="result-lsource"> ({{ lsourceText(r.lsources) }})</span></p>
               <div v-if="expandedIds.has(r.id)" class="detail-panel" @click.stop>
                 <div v-if="r.kanji.length" class="kanji-details">
                   <p class="detail-label">Kanji</p>
@@ -1406,6 +1421,11 @@ html, body {
   line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.result-lsource {
+  font-style: italic;
+  opacity: 0.8;
 }
 
 .score-badge {

@@ -151,7 +151,13 @@ CREATE TABLE entry_senses (
   antonym_id INTEGER NOT NULL REFERENCES tag_lists(id),
   info TEXT,
   restrict_to_kanji_id INTEGER REFERENCES tag_lists(id),
-  restrict_to_reading_id INTEGER REFERENCES tag_lists(id)
+  restrict_to_reading_id INTEGER REFERENCES tag_lists(id),
+  -- Loanword source-language info (JSON array of {lang, text, partial,
+  -- wasei}), e.g. [{"lang":"kor","text":"annyeong",...}] for アンニョン. Not
+  -- interned via tag_lists: like xref/re_restr (see comment above), each
+  -- value is closer to free text tied to a specific loanword than a small
+  -- reusable tag set.
+  lsource TEXT
 );
 CREATE INDEX idx_entry_senses_entry ON entry_senses(entry_id);
 
@@ -252,8 +258,8 @@ async function main() {
     const insertKanji = db.prepare('INSERT INTO entry_kanji (entry_id, ord, text, info_id, priority_id) VALUES (?, ?, ?, ?, ?)');
     const insertReading = db.prepare('INSERT INTO entry_readings (entry_id, ord, text, no_kanji, restrict_to, info_id, priority_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const insertSense = db.prepare(`INSERT INTO entry_senses
-      (entry_id, ord, pos_id, field_id, misc_id, dial_id, xref, antonym_id, info, restrict_to_kanji_id, restrict_to_reading_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      (entry_id, ord, pos_id, field_id, misc_id, dial_id, xref, antonym_id, info, restrict_to_kanji_id, restrict_to_reading_id, lsource)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const insertGloss = db.prepare('INSERT INTO entry_glosses (sense_id, entry_id, ord, text) VALUES (?, ?, ?, ?)');
 
     const insertEntryTx = makeTransaction(db, (e) => {
@@ -270,6 +276,7 @@ async function main() {
           JSON.stringify(s.xref), intern(s.antonym), s.info,
           intern(s.restrictToKanji),
           intern(s.restrictToReading),
+          s.lsource.length > 0 ? JSON.stringify(s.lsource) : null,
         ).lastInsertRowid;
         s.glosses.forEach((g, gi) => insertGloss.run(senseId, e.id, gi, g));
       });

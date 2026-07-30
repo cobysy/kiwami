@@ -2,9 +2,10 @@
 //
 // Parses data/raw/jmdict/JMdict_e into normalized dictionary entries: kanji
 // forms, readings, senses/glosses (English only, since JMdict_e is already
-// the English-only export), part-of-speech/field/misc/dialect tags, priority
-// markers, a derived numeric commonness score, an is_archaic flag, and
-// kanji_count on the headword.
+// the English-only export), part-of-speech/field/misc/dialect tags, loanword
+// source-language info (lsource - not English-only, e.g. xml:lang="kor" for
+// a Korean loanword), priority markers, a derived numeric commonness score,
+// an is_archaic flag, and kanji_count on the headword.
 //
 // Output: data/build/entries.ndjson (one JSON object per entry, newline
 // delimited — used instead of a single JSON array so later steps and the
@@ -25,7 +26,7 @@ const OUT_FILE = path.join(OUT_DIR, 'entries.ndjson');
 const REPEATABLE = new Set([
   'entry', 'k_ele', 'r_ele', 'ke_inf', 'ke_pri', 're_inf', 're_pri', 're_restr',
   'sense', 'pos', 'field', 'misc', 'dial', 'gloss', 'xref', 'ant', 's_inf',
-  'stagk', 'stagr',
+  'stagk', 'stagr', 'lsource',
 ]);
 
 const TIER1_PRIORITY = new Set(['news1', 'ichi1', 'spec1', 'gai1']);
@@ -38,6 +39,29 @@ function textOf(node) {
   if (typeof node === 'string') return node;
   if (typeof node === 'object' && '#text' in node) return String(node['#text']);
   return String(node);
+}
+
+function attr(node, name) {
+  return typeof node === 'object' && node != null ? node[`@_${name}`] : undefined;
+}
+
+// <lsource xml:lang="kor" ls_type="part" ls_wasei="y">annyeong</lsource> -
+// element text (if any - the DTD allows an empty lsource, meaning "this word
+// is a loan from this language" with no source word/phrase recorded) plus
+// its three attributes. xml:lang defaults to "eng" per the DTD when absent.
+// Can't reuse textOf() here: an attributes-only lsource (no text content)
+// parses to an object with no '#text' key, and textOf's fallback for that
+// case (String(node)) would yield the literal string "[object Object]".
+function lsourceOf(node) {
+  const text = typeof node === 'object' && node != null
+    ? ('#text' in node ? String(node['#text']) : '')
+    : String(node ?? '');
+  return {
+    lang: attr(node, 'xml:lang') ?? 'eng',
+    text,
+    partial: attr(node, 'ls_type') === 'part',
+    wasei: attr(node, 'ls_wasei') !== undefined,
+  };
 }
 
 function asArray(value) {
@@ -99,6 +123,7 @@ for (const e of entries) {
     field: asArray(s.field).map(textOf),
     misc: asArray(s.misc).map(textOf),
     dial: asArray(s.dial).map(textOf),
+    lsource: asArray(s.lsource).map(lsourceOf),
     glosses: asArray(s.gloss).map(textOf).filter(Boolean),
     xref: asArray(s.xref).map(textOf),
     antonym: asArray(s.ant).map(textOf),

@@ -66,7 +66,7 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
       driver.all('SELECT text FROM entry_readings WHERE entry_id = ? ORDER BY ord', [row.id]),
       driver.all('SELECT text FROM entry_glosses WHERE entry_id = ? ORDER BY ord', [row.id]),
       driver.all(
-        'SELECT tl.json AS pos FROM entry_senses s JOIN tag_lists tl ON tl.id = s.pos_id WHERE s.entry_id = ? ORDER BY s.ord',
+        'SELECT tl.json AS pos, s.lsource AS lsource FROM entry_senses s JOIN tag_lists tl ON tl.id = s.pos_id WHERE s.entry_id = ? ORDER BY s.ord',
         [row.id],
       ),
     ]);
@@ -76,6 +76,10 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
     // Raw JMdict pos tags (v5k, adj-i, n, ...), deduped in first-seen order
     // across senses - no display bucketing/relabeling.
     row.pos = [...new Set(senses.flatMap((s) => JSON.parse(s.pos)))];
+    // Loanword source-language info (e.g. {lang:'kor', text:'annyeong', ...}
+    // for アンニョン), flattened across senses in sense order - see
+    // lsource-labels.js for lang -> display name.
+    row.lsources = senses.flatMap((s) => (s.lsource ? JSON.parse(s.lsource) : []));
     row.archaic = row.is_archaic === 1;
     row.labels = row.labels ? row.labels.split(',') : [];
     row.dialect = row.dialect ? row.dialect.split(',').map(dialectLabel) : [];
