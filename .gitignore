@@ -26,3 +26,7 @@ public/assets/kuromoji-dict/
 # vitest browser mode's auto-captured failure screenshots.
 .vitest-attachments/
 tests/**/__screenshots__/
+
+# macOS Finder metadata, at any depth (leading-slash-free pattern matches
+# every directory, not just the repo root).
+.DS_Store

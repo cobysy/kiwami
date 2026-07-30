@@ -17,8 +17,9 @@ This document captures the dictionary data-build work that previously lived in t
       entry and `misc` tags (`arch`, `obs`, `rare`, `obsc`, etc.) per sense. Derive a simple
       numeric commonness score at build time and store it on the entry, this is what
       ranking and archaic/rare labeling in Phase 1 will use.
-      → `entries.commonness_score` + `entries.is_archaic`, plus raw per-sense `misc` tags
-      kept on `entry_senses` for finer-grained filtering if ever needed.
+      → `entries.commonness_score`, plus raw per-sense `misc` tags kept on `entry_senses`.
+      No stored archaic flag: the query layer derives that from those `misc` tags instead
+      (`src/dictionary/archaic.js`), so revising the rule doesn't mean rebuilding the database.
 - [x] Pull the Tatoeba Japanese-English sentence pairs (`jpn_indices.csv` +
       `sentences.csv`/`sentences_detailed.csv` from tatoeba.org, CC BY 2.0 FR), which come
       pre-linked to JMdict headwords via the indices file, so no separate matching step needed.

@@ -10,7 +10,7 @@
 // manual tool for eyeballing search results by hand against that same real
 // data — the styling here is a usable dev-harness skin, not Phase 2's design
 // system.
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, nextTick, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-drivers/browser-sqlite-driver.js';
 import { search, fuzzySearch, deconjugate, fetchSentencesForEntry, fetchKanjiDetails, conjugate, isConjugatableVerb } from './dictionary/index.js';
 import { DIALECT_OPTIONS, dialectColor } from './dictionary/dialect-labels.js';
@@ -92,9 +92,10 @@ const deconjugated = ref([]);
 // Whether a search has actually been run yet - distinguishes "no results" from "haven't searched" for empty-state messaging.
 const hasSearched = ref(false);
 
-// The engine returns archaic/obsolete/rare/obscure entries flagged, not
+// The engine returns archaic/obsolete/rare/dated entries flagged, not
 // filtered out (PLAN.md: "the engine decides the tier and flag, the UI
-// decides how to display it"). They always live in their own block below
+// decides how to display it" — see src/dictionary/archaic.js for which misc
+// tags earn the flag). They always live in their own block below
 // the main list rather than interleaved by score — an archaic sense of a
 // common word (e.g. 母/いろは, an archaic reading meaning "birth mother")
 // would otherwise land near the top of the list by commonness/tier order
@@ -111,6 +112,26 @@ function archaicView(list) {
 }
 const resultsView = computed(() => archaicView(results.value));
 const fuzzyResultsView = computed(() => archaicView(fuzzyResults.value));
+
+// The block the toggle reveals sits below the entire main result list, which
+// for anything but a one-hit query is already past the bottom of the window -
+// so flipping the switch on changes nothing you can see, and reads as a dead
+// control. Scroll to what was just revealed instead. Only one of these refs
+// is ever bound at a time: the main results and the fuzzy view are mutually
+// exclusive branches (showFuzzy), each with its own archaic block.
+const archaicBlock = ref(null);
+const fuzzyArchaicBlock = ref(null);
+
+async function revealArchaic() {
+  if (!showArchaic.value) return;
+  // The block doesn't exist in the DOM until the v-if re-evaluates.
+  await nextTick();
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  (archaicBlock.value ?? fuzzyArchaicBlock.value)?.scrollIntoView({
+    behavior: reduceMotion ? 'auto' : 'smooth',
+    block: 'start',
+  });
+}
 
 // Deconjugation candidates lean on loose suffix-stripping (and, as a
 // fallback, kuromoji's basic_form guesses - see deconjugate.js), which
@@ -424,6 +445,7 @@ onMounted(async () => {
               type="button"
               class="segment"
               :class="{ active: matchMode === value }"
+              :aria-pressed="matchMode === value"
               @click="matchMode = value; runSearch()"
             >
               {{ label }}
@@ -440,6 +462,7 @@ onMounted(async () => {
               type="button"
               class="segment"
               :class="{ active: kanjiCount === n }"
+              :aria-pressed="kanjiCount === n"
               @click="kanjiCount = kanjiCount === n ? null : n; runSearch()"
             >
               {{ n === 4 ? '4+' : n }}
@@ -448,6 +471,7 @@ onMounted(async () => {
               type="button"
               class="segment"
               :class="{ active: kanjiCount === null }"
+              :aria-pressed="kanjiCount === null"
               @click="kanjiCount = null; runSearch()"
             >
               Any
@@ -468,7 +492,7 @@ onMounted(async () => {
 
         <label class="switch-row">
           <span class="switch">
-            <input type="checkbox" v-model="showArchaic" />
+            <input type="checkbox" v-model="showArchaic" @change="revealArchaic" />
             <span class="switch-track"><span class="switch-thumb"></span></span>
           </span>
           <span>
@@ -563,7 +587,7 @@ onMounted(async () => {
           </li>
         </ul>
 
-        <div v-if="resultsView.archaic.length > 0 && (showArchaic || resultsView.allArchaic)" class="archaic-block">
+        <div v-if="resultsView.archaic.length > 0 && (showArchaic || resultsView.allArchaic)" ref="archaicBlock" class="archaic-block">
           <h3 class="archaic-heading">
             Archaic / obsolete / rare matches
             <span v-if="resultsView.allArchaic" class="archaic-heading-sub">(no other matches)</span>
@@ -699,7 +723,7 @@ onMounted(async () => {
           </li>
         </ul>
 
-        <div v-if="fuzzyResultsView.archaic.length > 0 && (showArchaic || fuzzyResultsView.allArchaic)" class="archaic-block">
+        <div v-if="fuzzyResultsView.archaic.length > 0 && (showArchaic || fuzzyResultsView.allArchaic)" ref="fuzzyArchaicBlock" class="archaic-block">
           <h4 class="archaic-heading">
             Archaic / obsolete / rare matches
             <span v-if="fuzzyResultsView.allArchaic" class="archaic-heading-sub">(no other matches)</span>
@@ -784,6 +808,15 @@ onMounted(async () => {
   --accent: #7c8cff;
   --accent-strong: #9aa6ff;
   --accent-contrast: #0b0d12;
+  /* Tonal fills for active/primary controls. Solid --accent slabs dominated
+     the page; a wash this faint marks state while letting the accent *text*
+     carry the emphasis. Both keep accent text well above 4.5:1 on --bg. */
+  --accent-wash: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-wash-hover: color-mix(in srgb, var(--accent) 20%, transparent);
+  /* Outline for tonal controls. Full-strength --accent at 1px reads as a heavy
+     rule; perceived thickness here is mostly contrast, not width. Paired with
+     the high-DPI hairline below. */
+  --accent-line: color-mix(in srgb, var(--accent) 55%, transparent);
   --danger: #ff7a7a;
   --warning: #f2b64d;
   --success: #4ade80;
@@ -816,6 +849,36 @@ html, body {
 * {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* The UA stylesheet gives form controls their own family and weight, so
+   without this every button/select ignored .app's SF Light and rendered at
+   400 in the system UI font - reading fatter than the text around it. Size is
+   left alone; each control sets its own. */
+button, select, input, textarea {
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+/* Now that the controls are tonal rather than filled, the default focus ring
+   is the only thing marking keyboard position - make it explicit and
+   consistent, matching .search-box:focus-within. :focus-visible so it never
+   lingers after a mouse click. */
+button:focus-visible, select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* True hairlines. On a 2x/3x display 1px CSS is 2-3 device pixels, which is
+   what makes these outlines look chunky; 0.5px is a real one-device-pixel
+   line there. Gated behind the query because non-retina engines round 0.5px
+   up to 1px or away to nothing. .search-box is included so it and
+   .search-btn keep matching border widths - and so equal heights - in the
+   .search-card flex row. */
+@media (min-resolution: 2dppx) {
+  .search-btn, .search-box, .segment, .select, .icon-btn, .conjugate-btn {
+    border-width: 0.5px;
+  }
 }
 
 .app {
@@ -1043,16 +1106,24 @@ html, body {
   height: 0.9rem;
 }
 
+/* Tonal, not flat: a text-only button would read as a link and lose the
+   primary-action affordance next to the input. The wash + accent border keep
+   it the most prominent control on the card without the solid accent slab.
+   The 1px border matches .search-box's, so both stay the same height. */
 .search-btn {
-  border: none;
+  border: 1px solid var(--accent-line);
   border-radius: var(--radius-lg);
   padding: 0 1.4rem;
   font-size: 0.95rem;
-  font-weight: 600;
-  background: linear-gradient(155deg, var(--accent-strong), var(--accent));
-  color: var(--accent-contrast);
+  font-weight: 500;
+  background: var(--accent-wash);
+  color: var(--accent-strong);
   cursor: pointer;
-  transition: transform 0.1s ease, opacity 0.15s ease;
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+}
+
+.search-btn:hover:not(:disabled) {
+  background: var(--accent-wash-hover);
 }
 
 .search-btn:active:not(:disabled) {
@@ -1121,11 +1192,19 @@ html, body {
   min-height: 2rem;
 }
 
+/* Selection state, so it has to stay unmistakable against the muted pills
+   beside it - but via wash + accent border + accent text rather than a solid
+   fill. The border change means selection isn't signalled by hue alone
+   (WCAG 1.4.1), and aria-pressed carries it for screen readers. No weight
+   bump: it would reflow the pill's width on every toggle. */
 .segment.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
-  font-weight: 600;
+  background: var(--accent-wash);
+  border-color: var(--accent-line);
+  color: var(--accent-strong);
+}
+
+.segment.active:hover {
+  background: var(--accent-wash-hover);
 }
 
 .segment:hover:not(.active) {
@@ -1201,7 +1280,7 @@ html, body {
   inset: 0;
   background: var(--border-strong);
   border-radius: 999px;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
   pointer-events: none;
 }
 
@@ -1216,13 +1295,30 @@ html, body {
   transition: transform 0.15s ease;
 }
 
+/* Tonal like the other accented controls. The ring is an inset shadow rather
+   than a border because .switch-thumb is positioned against this box and its
+   0.15rem insets already total the track's exact height - a real border would
+   shove it 1px out of the track. On/off still differs by thumb position and
+   colour, not hue alone. */
 .switch input:checked + .switch-track {
-  background: var(--accent);
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 
 .switch input:checked + .switch-track .switch-thumb {
   transform: translateX(1rem);
-  background: var(--accent-contrast);
+  background: var(--accent-strong);
+}
+
+/* Own focus rules: the track's resting state already owns box-shadow, so the
+   checked variant has to re-declare the inset ring alongside the focus ring. */
+.switch input:focus-visible + .switch-track {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.switch input:focus-visible:checked + .switch-track {
+  box-shadow: inset 0 0 0 1px var(--accent-line),
+              0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .count-pill {
@@ -1316,7 +1412,7 @@ html, body {
   margin-left: auto;
   border: none;
   background: none;
-  color: var(--accent-strong);
+  color: var(--accent);
   font-size: 0.82rem;
   cursor: pointer;
   padding: 0.2rem 0;
@@ -1550,9 +1646,8 @@ html, body {
 .conjugate-btn {
   border: 1px solid var(--border);
   background: var(--bg);
-  color: var(--accent-strong);
+  color: var(--accent);
   font-size: 0.75rem;
-  font-weight: 600;
   border-radius: 999px;
   padding: 0.3rem 0.75rem;
   cursor: pointer;
@@ -1595,9 +1690,10 @@ html, body {
 
 .conj-ending {
   color: var(--accent-strong);
-  /* JP text, so 700 would pick Hiragino W7 - far too heavy for 0.8rem kana.
-     The accent colour already carries the emphasis. */
-  font-weight: 500;
+  /* No weight bump at all: any step above --font-jp-weight picks a heavier
+     Hiragino face (500 -> W5) and the kana visibly thicken next to the W2
+     stem beside them. The accent colour carries the emphasis on its own. */
+  font-weight: var(--font-jp-weight);
 }
 
 .sentence-list {
@@ -1667,7 +1763,7 @@ html, body {
 .back-link {
   border: none;
   background: none;
-  color: var(--accent-strong);
+  color: var(--accent);
   font-size: 0.85rem;
   cursor: pointer;
   padding: 0.3rem 0;

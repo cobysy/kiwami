@@ -5,7 +5,10 @@
 // the English-only export), part-of-speech/field/misc/dialect tags, loanword
 // source-language info (lsource - not English-only, e.g. xml:lang="kor" for
 // a Korean loanword), priority markers, a derived numeric commonness score,
-// an is_archaic flag, and kanji_count on the headword.
+// and kanji_count on the headword. Nothing here decides whether an entry is
+// archaic — that's derived from the misc tags at query time instead (see
+// src/dictionary/archaic.js) so revising the rule doesn't mean rebuilding the
+// database.
 //
 // Output: data/build/entries.ndjson (one JSON object per entry, newline
 // delimited — used instead of a single JSON array so later steps and the
@@ -31,7 +34,6 @@ const REPEATABLE = new Set([
 
 const TIER1_PRIORITY = new Set(['news1', 'ichi1', 'spec1', 'gai1']);
 const TIER2_PRIORITY = new Set(['news2', 'ichi2', 'spec2', 'gai2']);
-const ARCHAIC_MISC = new Set(['arch', 'obs', 'rare', 'obsc']);
 const KANJI_RE = /[一-鿿㐀-䶿]/g;
 
 function textOf(node) {
@@ -137,10 +139,6 @@ for (const e of entries) {
     ...kanji.flatMap((k) => k.priority),
     ...readings.flatMap((r) => r.priority),
   ]);
-  const isArchaic = senses.length > 0 && senses.every(
-    (s) => s.misc.length > 0 && s.misc.every((tag) => ARCHAIC_MISC.has(tag)),
-  );
-
   const normalized = {
     id: Number(textOf(e.ent_seq)),
     kanji,
@@ -148,7 +146,6 @@ for (const e of entries) {
     senses,
     kanjiCount: (headword.match(KANJI_RE) || []).length,
     commonnessScore: commonnessScore(allPriority),
-    isArchaic,
   };
 
   out.write(JSON.stringify(normalized) + '\n');

@@ -187,12 +187,16 @@ driver implementations, which are the only pieces allowed to know which platform
         (translated to a `LIKE`/`GLOB` query) and skip fuzzy correction. This also covers
         starts-with (`食*`) and ends-with (`*る`) without separate UI. Implemented as
         `wildcardToLikePattern` in `src/dictionary/search.js`.
-  - [x] **Common vs. archaic/rare tagging**: entries whose senses are only tagged
-        `arch`/`obs`/`rare`/`obsc` get pushed lower within their tier and flagged in the
+  - [x] **Common vs. archaic/rare tagging**: entries whose every sense is tagged
+        `arch`/`obs`/`rare`/`obsc`/`dated` get pushed lower within their tier and flagged in the
         result data (e.g. an `archaic`/`rare` field) so the UI phase can label them —
         the engine decides the tier and flag, the UI decides how to display it. Implemented in
-        `src/dictionary/dictionary-entries.js` (`fetchEntriesByIds`), reusing the `is_archaic` column and
-        misc-tag subquery pattern `scripts/verify-db.mjs`'s example queries already established.
+        `src/dictionary/archaic.js` (`isArchaicEntry`), applied by
+        `src/dictionary/dictionary-entries.js` (`fetchEntriesByIds`) to the per-sense `misc` tags it
+        hydrates. Deliberately derived at query time rather than stored as a column: which tags
+        count is a judgment call that gets revisited (`hist` marks the *referent* as historical, a
+        `dated` word with priority tags is still common), and a stored flag would make every
+        revision a full JMdict reparse + reassemble + recompress of `dictionary.db`.
   - [x] **Fuzzy/phonetically-similar kana, opt-in not automatic**: the main case isn't
         typos, it's a learner who heard a word spoken and typed what they *thought* they
         heard, mora by mora. Expose this as a separate query function the UI calls only on

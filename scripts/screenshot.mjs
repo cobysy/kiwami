@@ -78,6 +78,12 @@ try {
   // leaves a trailing blank area below the archaic block, the last section on
   // the page), so clip the capture to the actual content height instead of
   // screenshotting the full viewport.
+  //
+  // boundingBox() and the clip below are both viewport-relative, so anything
+  // that scrolled the page would silently shift the capture: revealing the
+  // archaic block scrolls it into view in the app (revealArchaic in App.vue),
+  // a no-op at this viewport height today but not if the result set grows.
+  await page.evaluate(() => window.scrollTo(0, 0));
   const contentBottom = await page.locator('.archaic-block').boundingBox().then((box) => box.y + box.height);
 
   mkdirSync(OUT_DIR, { recursive: true });

@@ -5,22 +5,14 @@
 // common-first within a tier, archaic pushed down rather than filtered out.
 import { dialectLabel } from './dialect-labels.js';
 import { decodeLsource } from './list-encoding.js';
+import { isArchaicEntry } from './archaic.js';
 
-// Pulls every misc tag present on an entry's senses (arch/rare/obsolete, but
-// also things like "uk" (usually kana) or "hon" (honorific)) - see
-// misc-labels.js for the full tag -> display-word mapping.
-// misc/dial/priority are interned into tag_lists (see assemble-sqlite.mjs)
-// rather than storing the JSON array inline on every row, so each subquery
-// joins to tag_lists to get the JSON text back before unnesting it.
-const LABELS_SUBQUERY = `(
-  SELECT GROUP_CONCAT(DISTINCT m.value) FROM entry_senses s
-  JOIN tag_lists tl ON tl.id = s.misc_id, json_each(tl.json) m
-  WHERE s.entry_id = e.id
-) AS labels`;
-
-// Same GROUP_CONCAT-across-senses pattern as LABELS_SUBQUERY, but for
-// entry_senses.dial (regional dialect tags, e.g. ksb/Kansai-ben) so results
-// can show which entries are dialect-specific.
+// GROUP_CONCAT-across-senses subquery for entry_senses.dial (regional dialect
+// tags, e.g. ksb/Kansai-ben) so results can show which entries are
+// dialect-specific. dial/priority are interned into tag_lists (see
+// assemble-sqlite.mjs) rather than storing the JSON array inline on every
+// row, so the subquery joins to tag_lists to get the JSON text back before
+// unnesting it.
 const DIALECT_SUBQUERY = `(
   SELECT GROUP_CONCAT(DISTINCT dialect_tag.value) FROM entry_senses s
   JOIN tag_lists tl ON tl.id = s.dial_id, json_each(tl.json) dialect_tag
@@ -53,10 +45,10 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
 
   const placeholders = ids.map(() => '?').join(',');
   const rows = await driver.all(
-    `SELECT e.id, e.kanji_count, e.commonness_score, e.is_archaic, ${LABELS_SUBQUERY}, ${DIALECT_SUBQUERY}, ${PRIORITY_SUBQUERY}
+    `SELECT e.id, e.kanji_count, e.commonness_score, ${DIALECT_SUBQUERY}, ${PRIORITY_SUBQUERY}
      FROM entries e
      WHERE e.id IN (${placeholders})
-     ORDER BY e.is_archaic ASC, e.commonness_score DESC
+     ORDER BY e.commonness_score DESC
      LIMIT ?`,
     [...ids, limit],
   );
@@ -67,7 +59,11 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
       driver.all('SELECT text FROM entry_readings WHERE entry_id = ? ORDER BY ord', [row.id]),
       driver.all('SELECT text FROM entry_glosses WHERE entry_id = ? ORDER BY ord', [row.id]),
       driver.all(
-        'SELECT tl.json AS pos, s.lsource AS lsource FROM entry_senses s JOIN tag_lists tl ON tl.id = s.pos_id WHERE s.entry_id = ? ORDER BY s.ord',
+        `SELECT pos.json AS pos, misc.json AS misc, s.lsource AS lsource
+         FROM entry_senses s
+         JOIN tag_lists pos ON pos.id = s.pos_id
+         JOIN tag_lists misc ON misc.id = s.misc_id
+         WHERE s.entry_id = ? ORDER BY s.ord`,
         [row.id],
       ),
     ]);
@@ -81,13 +77,24 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
     // for アンニョン), flattened across senses in sense order - see
     // lsource-labels.js for lang -> display name.
     row.lsources = senses.flatMap((s) => decodeLsource(s.lsource));
-    row.archaic = row.is_archaic === 1;
-    row.labels = row.labels ? row.labels.split(',') : [];
     row.dialect = row.dialect ? row.dialect.split(',').map(dialectLabel) : [];
     // Raw tags (news1, ichi1, nf12, ...); see frequency-labels.js for the
     // decoded meaning behind each one.
     row.priority = row.priority ? row.priority.split(',') : [];
-    delete row.is_archaic;
+    // Misc tags per sense (arch/rare/dated, but also things like "uk"
+    // (usually kana) or "hon" (honorific)) - kept per-sense for
+    // isArchaicEntry, which needs to know whether *every* sense is dead, then
+    // flattened for display. See misc-labels.js for tag -> display word.
+    const senseMisc = senses.map((s) => JSON.parse(s.misc));
+    row.labels = [...new Set(senseMisc.flat())];
+    row.archaic = isArchaicEntry(senseMisc, row.priority);
   }));
+  // Archaic entries sort last within the returned page rather than in SQL:
+  // the flag is derived from the misc tags above (see archaic.js on why it
+  // isn't a column), so it doesn't exist yet when the query runs. The LIMIT
+  // therefore keeps the most common matches regardless of archaicness, and
+  // this only orders what came back.
+  rows.sort((a, b) => (Number(a.archaic) - Number(b.archaic))
+    || (b.commonness_score - a.commonness_score));
   return rows;
 }

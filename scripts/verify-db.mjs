@@ -30,6 +30,13 @@ const KNOWN_TABLES = [
   'tag_lists', 'kanji', 'kanji_compounds', 'sentences', 'entry_sentences', 'meta',
 ];
 
+// The misc tags that mark a sense as no-longer-current usage — kept in sync
+// with ARCHAIC_MISC in src/dictionary/archaic.js, which is where the actual
+// entry-level rule lives (every sense tagged, and no priority tags). Used
+// here only to show/spot-check those tags as stored.
+const DEAD_USAGE_MISC = ['arch', 'obs', 'rare', 'obsc', 'dated'];
+const DEAD_USAGE_MISC_SQL = DEAD_USAGE_MISC.map((t) => `'${t}'`).join(', ');
+
 let failures = 0;
 function check(label, condition, detail = '') {
   if (condition) {
@@ -84,7 +91,15 @@ check('kanji form is 明白', kanjiText === '明白', `got ${kanjiText}`);
 check('reading is めいはく', readingText === 'めいはく', `got ${readingText}`);
 check('glosses include "obvious"', glosses.includes('obvious'), `got ${glosses.join(', ')}`);
 check('commonness_score > 0 (has priority tags)', entry?.commonness_score > 0);
-check('is_archaic is false', entry?.is_archaic === 0);
+// There's no is_archaic column to check - src/dictionary/archaic.js derives
+// that from these misc tags at query time. This asserts the raw material it
+// reads is there and says what it should for a live, common word.
+const miscTags = db.prepare(`
+  SELECT DISTINCT m.value AS tag FROM entry_senses s
+  JOIN tag_lists tl ON tl.id = s.misc_id, json_each(tl.json) m
+  WHERE s.entry_id = 1000220
+`).all().map((r) => r.tag);
+check('no dead-usage misc tag on its senses', !miscTags.some((t) => DEAD_USAGE_MISC.includes(t)), `got ${miscTags.join(', ')}`);
 
 console.log('\n=== Kanji + kanji_compounds join (明) ===');
 const kanjiRow = db.prepare('SELECT * FROM kanji WHERE literal = ?').get('明');
@@ -128,15 +143,16 @@ function runExample(title, sql, params = []) {
 console.log('\n=== Example queries ===');
 console.log('(realistic usage patterns against this schema — SQL + actual results)');
 
-// Shared subquery fragment: pulls the archaic/rare/obsolete/obscure tags
-// actually present on an entry's senses (via json_each unnesting the JSON
-// array interned in tag_lists and referenced by entry_senses.misc_id), so
-// example results show the specific label PLAN.md's Phase 1 UI would render
-// ("archaic", "rare", etc.), not just the coarse is_archaic boolean.
+// Shared subquery fragment: pulls the dead-usage tags actually present on an
+// entry's senses (via json_each unnesting the JSON array interned in
+// tag_lists and referenced by entry_senses.misc_id), so example results show
+// the specific label the UI renders ("archaic", "rare", ...). This is also
+// the raw material src/dictionary/archaic.js turns into the per-entry
+// `archaic` flag - there's no is_archaic column to select instead.
 const LABELS_SUBQUERY = `(
   SELECT GROUP_CONCAT(DISTINCT m.value) FROM entry_senses s
   JOIN tag_lists tl ON tl.id = s.misc_id, json_each(tl.json) m
-  WHERE s.entry_id = e.id AND m.value IN ('arch', 'obs', 'rare', 'obsc')
+  WHERE s.entry_id = e.id AND m.value IN (${DEAD_USAGE_MISC_SQL})
 ) AS labels`;
 
 runExample(
@@ -148,7 +164,7 @@ runExample(
   // a substring of a longer idiom.
   'Search by English gloss, common-first ("cat")',
   `SELECT e.id, GROUP_CONCAT(DISTINCT k.text) AS kanji, GROUP_CONCAT(DISTINCT r.text) AS readings,
-          GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score, e.is_archaic, ${LABELS_SUBQUERY}
+          GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score, ${LABELS_SUBQUERY}
    FROM entries e
    LEFT JOIN entry_kanji k ON k.entry_id = e.id
    JOIN entry_readings r ON r.entry_id = e.id
@@ -160,7 +176,7 @@ runExample(
 runExample(
   'Search by kana reading ("ねこ")',
   `SELECT e.id, GROUP_CONCAT(DISTINCT k.text) AS kanji, GROUP_CONCAT(DISTINCT r.text) AS readings,
-          GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score, e.is_archaic, ${LABELS_SUBQUERY}
+          GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score, ${LABELS_SUBQUERY}
    FROM entries e
    LEFT JOIN entry_kanji k ON k.entry_id = e.id
    JOIN entry_readings r ON r.entry_id = e.id
@@ -171,8 +187,7 @@ runExample(
 
 runExample(
   'Kanji-count filter: single-kanji headwords, most common first',
-  `SELECT e.id, k.text AS headword, GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score,
-          e.is_archaic, ${LABELS_SUBQUERY}
+  `SELECT e.id, k.text AS headword, GROUP_CONCAT(DISTINCT g.text) AS glosses, e.commonness_score, ${LABELS_SUBQUERY}
    FROM entries e
    JOIN entry_kanji k ON k.entry_id = e.id AND k.ord = 0
    JOIN entry_glosses g ON g.entry_id = e.id
@@ -180,14 +195,23 @@ runExample(
 );
 
 runExample(
-  'Archaic/rare labeling: a few is_archaic entries, with the specific tag(s)',
+  // Sense-level tags only - "is this whole entry archaic" also needs every
+  // sense to be tagged and the entry to have no priority tags, which
+  // src/dictionary/archaic.js decides in JS over the hydrated senses rather
+  // than in SQL here.
+  'Dead-usage labeling: entries with an archaic/obsolete/rare/dated sense, with the specific tag(s)',
   `SELECT e.id, k.text AS headword, r.text AS reading, GROUP_CONCAT(DISTINCT g.text) AS glosses,
           ${LABELS_SUBQUERY}
    FROM entries e
    LEFT JOIN entry_kanji k ON k.entry_id = e.id AND k.ord = 0
    JOIN entry_readings r ON r.entry_id = e.id AND r.ord = 0
    JOIN entry_glosses g ON g.entry_id = e.id
-   WHERE e.is_archaic = 1 GROUP BY e.id LIMIT 5`,
+   WHERE e.id IN (
+     SELECT s.entry_id FROM entry_senses s
+     JOIN tag_lists tl ON tl.id = s.misc_id, json_each(tl.json) m
+     WHERE m.value IN (${DEAD_USAGE_MISC_SQL})
+   )
+   GROUP BY e.id LIMIT 5`,
 );
 
 runExample(

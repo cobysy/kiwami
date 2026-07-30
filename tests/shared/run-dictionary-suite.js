@@ -133,13 +133,49 @@ export function runDictionarySuite(label, createDriver) {
         expect(results[0].labels).toContain('arch');
       });
 
+      it('flags a dead sense even when an unrelated tag shares it', async () => {
+        // Searching くま used to leave three dead entries in the main results
+        // because the flag required *every* misc tag on a sense to be an
+        // archaic one: 熊手婆 (2667350) is arch+derog, 熊蟻 (2231030) is
+        // rare+uk, and 隈々 (2855926) is tagged dated, which didn't count at
+        // all. Meanwhile 熊 "bear" (1246850) has to stay in the main list.
+        const { results } = await search(driver, 'くま');
+        const archaic = new Map(results.map((r) => [r.id, r.archaic]));
+        expect(archaic.get(2667350)).toBe(true);
+        expect(archaic.get(2231030)).toBe(true);
+        expect(archaic.get(2855926)).toBe(true);
+        expect(archaic.get(1246850)).toBe(false);
+      });
+
+      it('keeps an entry live when only some of its senses are dead', async () => {
+        // チャリンコ (1007650) has two senses: "bicycle" (col), still current,
+        // and "child pickpocket" (dated+sl). One dead sense doesn't make the
+        // word dead - and it has no priority tags, so it's the every-sense
+        // rule keeping it in the main list here, not the commonness guard.
+        const { results } = await search(driver, 'チャリンコ');
+        const entry = results.find((r) => r.id === 1007650);
+        expect(entry?.archaic).toBe(false);
+        expect(entry.labels).toContain('dated');
+      });
+
+      it('keeps common dated words and historical terms out of the archaic block', async () => {
+        // 婦人 (1496670, news1/ichi1) is tagged dated but far too common to
+        // bury; 明治 (1611970) is tagged hist, which marks the Meiji era as
+        // historical, not the word as dead.
+        const dated = await search(driver, '婦人');
+        expect(dated.results.find((r) => r.id === 1496670)?.archaic).toBe(false);
+        const hist = await search(driver, '明治');
+        expect(hist.results.find((r) => r.id === 1611970)?.archaic).toBe(false);
+      });
+
       it('sorts common-first and pushes the archaic entry to the bottom regardless of its score', async () => {
         // A "水酸*" wildcard matches a small, real mixed set: 11 non-archaic
         // chemistry terms (水酸化ナトリウム "sodium hydroxide", etc.) plus
         // exactly one archaic entry (1886480, 水酸根). Small enough to check
         // full ordering, unlike a bare "*" which would return only the top
-        // 50 of 200k+ entries (all non-archaic, since is_archaic sorts
-        // first) and never surface an archaic entry at all.
+        // 50 of 200k+ entries by commonness (all non-archaic, since a dead
+        // word doesn't carry priority tags) and never surface an archaic
+        // entry at all.
         const { results } = await search(driver, '水酸*');
         const nonArchaic = results.filter((r) => !r.archaic).map((r) => r.commonness_score);
         expect(nonArchaic).toEqual([...nonArchaic].sort((a, b) => b - a));

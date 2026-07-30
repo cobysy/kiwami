@@ -129,11 +129,13 @@ function encodeLsource(items) {
 }
 
 const SCHEMA = `
+-- No is_archaic column: whether an entry is archaic/obsolete/rare/dated is
+-- derived from entry_senses.misc at query time (src/dictionary/archaic.js),
+-- so revising that rule is a code change rather than a rebuild of this file.
 CREATE TABLE entries (
   id INTEGER PRIMARY KEY,
   kanji_count INTEGER NOT NULL,
-  commonness_score REAL NOT NULL,
-  is_archaic INTEGER NOT NULL
+  commonness_score REAL NOT NULL
 );
 
 -- Interned JSON-array tag lists (ke_inf/ke_pri/re_inf/re_pri/pos/field/misc/
@@ -306,7 +308,7 @@ async function main() {
   console.log('Loading entries (+ kanji forms, readings, senses, glosses)...');
   {
     const intern = makeInterner(db);
-    const insertEntry = db.prepare('INSERT INTO entries (id, kanji_count, commonness_score, is_archaic) VALUES (?, ?, ?, ?)');
+    const insertEntry = db.prepare('INSERT INTO entries (id, kanji_count, commonness_score) VALUES (?, ?, ?)');
     const insertKanji = db.prepare('INSERT INTO entry_kanji (entry_id, ord, text, info_id, priority_id) VALUES (?, ?, ?, ?, ?)');
     const insertReading = db.prepare('INSERT INTO entry_readings (entry_id, ord, text, no_kanji, restrict_to, info_id, priority_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const insertSense = db.prepare(`INSERT INTO entry_senses
@@ -315,7 +317,7 @@ async function main() {
     const insertGloss = db.prepare('INSERT INTO entry_glosses (sense_id, entry_id, ord, text) VALUES (?, ?, ?, ?)');
 
     const insertEntryTx = makeTransaction(db, (e) => {
-      insertEntry.run(e.id, e.kanjiCount, e.commonnessScore, e.isArchaic ? 1 : 0);
+      insertEntry.run(e.id, e.kanjiCount, e.commonnessScore);
       e.kanji.forEach((k, i) => insertKanji.run(e.id, i, k.text, intern(k.info), intern(k.priority)));
       e.readings.forEach((r, i) => insertReading.run(
         e.id, i, r.text, r.noKanji ? 1 : 0,
