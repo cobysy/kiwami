@@ -50,12 +50,22 @@ const errorMessage = ref('');
 // dictionary finishes loading (see onMounted).
 const searchInput = ref(null);
 
-const statusLabel = computed(() => ({
-  idle: 'Idle',
-  loading: 'Loading dictionary…',
-  ready: 'Ready',
-  error: 'Failed to load',
-}[status.value] ?? status.value));
+// Which slow path the current load is on, when it's on one: 'missing' (first
+// visit - full download), 'drifted' (cached copy is from an older build),
+// 'forced' (reload button). null while it's just opening the cached copy. Set
+// by ensureDatabaseFromUrl's onImportStart - see loadRealDictionary.
+const loadPhase = ref(null);
+
+const statusLabel = computed(() => {
+  if (status.value === 'loading') {
+    return {
+      missing: 'Downloading dictionary…',
+      drifted: 'Updating dictionary…',
+      forced: 'Re-downloading dictionary…',
+    }[loadPhase.value] ?? 'Loading dictionary…';
+  }
+  return { idle: 'Idle', ready: 'Ready', error: 'Failed to load' }[status.value] ?? status.value;
+});
 
 const MATCH_MODES = [
   ['auto', 'Auto'],
@@ -91,6 +101,14 @@ const showFuzzy = ref(false);
 const deconjugated = ref([]);
 // Whether a search has actually been run yet - distinguishes "no results" from "haven't searched" for empty-state messaging.
 const hasSearched = ref(false);
+// True from the moment a shared link's params are applied (synchronously, on
+// mount) until that link's search has finished. The dictionary is a ~40MB
+// compressed download that has to be fetched, decompressed and imported
+// before any query can run, so a link with ?q= spends about a second unable
+// to show results - without this the app renders its "Search a kanji,
+// reading, or English gloss to get started" empty state during that second,
+// which reads as "your link found nothing" right up until the results pop in.
+const restoring = ref(false);
 
 // The engine returns archaic/obsolete/rare/dated entries flagged, not
 // filtered out (PLAN.md: "the engine decides the tier and flag, the UI
@@ -123,6 +141,9 @@ const archaicBlock = ref(null);
 const fuzzyArchaicBlock = ref(null);
 
 async function revealArchaic() {
+  // The toggle is part of the shareable view, so every flip has to reach the
+  // URL - including turning it back off, which returns early below.
+  syncUrl();
   if (!showArchaic.value) return;
   // The block doesn't exist in the DOM until the v-if re-evaluates.
   await nextTick();
@@ -210,16 +231,28 @@ async function toggleExpand(entryId, headword) {
 let driver = null;
 
 // public/dictionary.db.zst (scripts/zstd-db.sh) - see ensureDatabaseFromUrl's
-// jsdoc for how this gets decompressed and imported.
+// jsdoc for how this gets decompressed and imported - alongside its
+// fingerprint manifest (scripts/manifest-db.mjs), which is what lets a browser
+// holding an older build's copy notice and re-import it.
 const DICTIONARY_FILE = 'dictionary.db.zst';
+const DICTIONARY_MANIFEST = 'dictionary.manifest.json';
 
 async function loadRealDictionary(force = false) {
   status.value = 'loading';
+  loadPhase.value = null;
   errorMessage.value = '';
   try {
     await driver?.close();
     driver = null;
-    await ensureDatabaseFromUrl('dictionary', `${import.meta.env.BASE_URL}${DICTIONARY_FILE}`, { force });
+    await ensureDatabaseFromUrl('dictionary', `${import.meta.env.BASE_URL}${DICTIONARY_FILE}`, {
+      force,
+      manifestUrl: `${import.meta.env.BASE_URL}${DICTIONARY_MANIFEST}`,
+      // A repeat visit normally opens a cached database in under two seconds;
+      // these are the paths that instead spend a 40MB download, so say which
+      // one it is rather than showing the same "Loading dictionary…" for
+      // wildly different waits.
+      onImportStart: (reason) => { loadPhase.value = reason; },
+    });
     driver = createBrowserDriver('dictionary', { readonly: true });
     await driver.open();
     status.value = 'ready';
@@ -268,13 +301,20 @@ function syncUrl() {
   if (kanjiCount.value) params.set('kanji', String(kanjiCount.value));
   if (dialect.value) params.set('dialect', dialect.value);
   if (showArchaic.value) params.set('archaic', '1');
+  if (showFuzzy.value) params.set('fuzzy', '1');
   if (expandedIds.value.size) params.set('entry', [...expandedIds.value].join(','));
   const qs = params.toString();
   const url = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
   window.history.replaceState(window.history.state, '', url);
 }
 
-async function runSearch() {
+// `options.keepFuzzy` is for the restore path only: a ?fuzzy=1 link still has
+// to run the main search first (it's what "back to search results" returns
+// to), but must not flash the main results on the way to the fuzzy view.
+// Read defensively rather than destructured - runSearch is bound directly to
+// @keyup/@change handlers, so the first argument is usually a DOM Event.
+async function runSearch(options) {
+  const keepFuzzy = options?.keepFuzzy === true;
   const hasQuery = query.value.trim().length > 0;
   if (!driver || (!hasQuery && !dialect.value)) {
     results.value = [];
@@ -296,9 +336,11 @@ async function runSearch() {
   interpretedQuery.value = searchResult.interpretedQuery ?? null;
   results.value = searchResult.results;
   deconjugated.value = deconjResult;
-  showFuzzy.value = false;
-  fuzzyResults.value = [];
-  fuzzyInterpretedQuery.value = null;
+  if (!keepFuzzy) {
+    showFuzzy.value = false;
+    fuzzyResults.value = [];
+    fuzzyInterpretedQuery.value = null;
+  }
   syncUrl();
 }
 
@@ -311,10 +353,19 @@ async function runFuzzy() {
   fuzzyInterpretedQuery.value = fuzzy.interpretedQuery ?? null;
 }
 
+function closeFuzzy() {
+  showFuzzy.value = false;
+  expandedIds.value.clear();
+  syncUrl();
+}
+
 // Mirror image of syncUrl(): applies a shared/copied link's params to the
-// search refs before the first search runs, and returns the entry ids to
-// re-open afterward (deferred since expandedIds isn't populated by a search
-// - it only exists once toggleExpand has fetched sentences/kanji for a row).
+// search refs before the first search runs, and returns what can only be
+// applied after one has run - the entry ids to re-open (expandedIds isn't
+// populated by a search, it only exists once toggleExpand has fetched
+// sentences/kanji for a row) and whether the link was of the fuzzy view
+// (runSearch has to happen first regardless, since it's what runFuzzy's
+// "back to search results" returns to).
 function restoreFromUrl() {
   const params = new URLSearchParams(window.location.search);
   if (params.has('q')) query.value = params.get('q');
@@ -325,25 +376,35 @@ function restoreFromUrl() {
   const dial = params.get('dialect');
   if (dial) dialect.value = dial;
   if (params.get('archaic') === '1') showArchaic.value = true;
-  return (params.get('entry') ?? '')
+  const entryIds = (params.get('entry') ?? '')
     .split(',')
     .map((id) => Number(id))
     .filter((id) => Number.isInteger(id) && id > 0);
+  const fuzzy = params.get('fuzzy') === '1';
+  // Both applied now rather than after the dictionary loads, so the very
+  // first paint is already the right *shape* of view (fuzzy vs main, pending
+  // rather than empty) and only its contents arrive late. See `restoring`.
+  if (fuzzy) showFuzzy.value = true;
+  restoring.value = Boolean(query.value.trim() || dialect.value);
+  return { entryIds, fuzzy };
 }
 
 onMounted(async () => {
-  const pendingEntryIds = restoreFromUrl();
+  const { entryIds, fuzzy } = restoreFromUrl();
   await loadRealDictionary();
   searchInput.value?.focus();
-  if (status.value === 'ready' && (query.value.trim() || dialect.value)) {
-    await runSearch();
-    for (const entryId of pendingEntryIds) {
-      const r = results.value.find((row) => row.id === entryId);
+  if (status.value === 'ready' && restoring.value) {
+    await runSearch({ keepFuzzy: fuzzy });
+    if (fuzzy) await runFuzzy();
+    const restored = fuzzy ? fuzzyResults.value : results.value;
+    for (const entryId of entryIds) {
+      const r = restored.find((row) => row.id === entryId);
       if (!r) continue;
       if (r.archaic) showArchaic.value = true;
       await toggleExpand(r.id, r.kanji.join(''));
     }
   }
+  restoring.value = false;
 });
 </script>
 
@@ -524,8 +585,21 @@ onMounted(async () => {
           <button v-if="query" type="button" class="fuzzy-link" @click="runFuzzy">Didn't find it? Try fuzzy search →</button>
         </div>
 
+        <p v-else-if="restoring" class="empty-state pending-note">
+          Looking up <span class="pending-query">{{ query.trim() || selectedDialectLabel }}</span>…
+        </p>
         <p v-else-if="hasSearched" class="empty-state">No matches yet — try a different query.</p>
         <p v-else class="empty-state">Search a kanji, reading, or English gloss to get started.</p>
+
+        <ul v-if="restoring" class="result-list" aria-hidden="true">
+          <li v-for="n in 3" :key="n" class="result-card skeleton-card">
+            <div class="result-row">
+              <span class="skeleton-bar skeleton-headword"></span>
+              <span class="skeleton-bar skeleton-reading"></span>
+            </div>
+            <span class="skeleton-bar skeleton-gloss"></span>
+          </li>
+        </ul>
 
         <ul v-if="resultsView.main.length" class="result-list">
           <li
@@ -655,15 +729,25 @@ onMounted(async () => {
       </template>
 
       <section v-if="showFuzzy" class="fuzzy-section">
-        <button type="button" class="back-link" @click="showFuzzy = false">← Back to search results</button>
+        <button v-if="!restoring" type="button" class="back-link" @click="closeFuzzy">← Back to search results</button>
         <h3 class="fuzzy-heading">
           Fuzzy matches
           <span v-if="fuzzyInterpretedQuery" class="interpreted-note">searched as {{ fuzzyInterpretedQuery }}</span>
+          <span v-else-if="restoring" class="interpreted-note">looking up {{ query.trim() }}…</span>
           <span v-if="fuzzyResultsView.archaic.length > 0 && !fuzzyResultsView.allArchaic" class="archaic-heading-sub">
             {{ fuzzyResultsView.archaic.length }} archaic/obsolete/rare{{ showArchaic ? '' : ', hidden' }}
           </span>
         </h3>
-        <ul class="result-list">
+        <ul v-if="restoring" class="result-list" aria-hidden="true">
+          <li v-for="n in 3" :key="n" class="result-card skeleton-card">
+            <div class="result-row">
+              <span class="skeleton-bar skeleton-headword"></span>
+              <span class="skeleton-bar skeleton-reading"></span>
+            </div>
+            <span class="skeleton-bar skeleton-gloss"></span>
+          </li>
+        </ul>
+        <ul v-if="fuzzyResultsView.main.length" class="result-list">
           <li
             v-for="r in fuzzyResultsView.main"
             :key="r.id"
@@ -1427,6 +1511,59 @@ button:focus-visible, select:focus-visible {
   text-align: center;
   color: var(--text-faint);
   font-size: 0.9rem;
+}
+
+/* Placeholder rows shown while a shared link's dictionary download is still
+   in flight (see `restoring`) - same card metrics as a real result so the
+   list doesn't jump when the real rows replace them. */
+.skeleton-card {
+  cursor: default;
+  pointer-events: none;
+}
+
+.skeleton-card:hover {
+  background: var(--surface);
+}
+
+.skeleton-bar {
+  display: block;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: var(--border);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+.skeleton-headword {
+  width: 4.5rem;
+  height: 0.8rem;
+}
+
+.skeleton-reading {
+  width: 3rem;
+  animation-delay: 0.15s;
+}
+
+.skeleton-gloss {
+  width: 68%;
+  margin-top: 0.25rem;
+  animation-delay: 0.3s;
+}
+
+.pending-query {
+  font-family: var(--font-jp);
+  font-weight: var(--font-jp-weight);
+  color: var(--text-muted);
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar {
+    animation: none;
+  }
 }
 
 .result-list {

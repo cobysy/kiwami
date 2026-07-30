@@ -22,7 +22,13 @@
 #                                  (zstd -19 - scripts/zstd-db.sh), the file
 #                                  tracked in git and fetched at runtime (see
 #                                  ensureDatabaseFromUrl in
-#                                  src/dictionary/sqlite-drivers/browser-sqlite-driver.js)
+#                                  src/dictionary/sqlite-drivers/browser-sqlite-driver.js);
+#                                  also refreshes the manifest below
+#   manifest                      rewrite public/dictionary.manifest.json, the
+#                                  .zst fingerprint browsers compare their
+#                                  cached copy against (scripts/manifest-db.mjs).
+#                                  Runs as part of "zstd"; standalone only to
+#                                  rebuild the manifest without recompressing
 #   build-all                     all seven build stages above, in dependency order
 #   all                           fetch-all then build-all
 #
@@ -40,7 +46,7 @@ STEP="${1:-}"
 
 usage() {
   echo "Usage: npm run build:db -- <step> [args...]"
-  echo "Steps: jmdict kanjidic tatoeba fetch-all entries kanji sentences furigana compounds db zstd build-all all"
+  echo "Steps: jmdict kanjidic tatoeba fetch-all entries kanji sentences furigana compounds db zstd manifest build-all all"
   exit 1
 }
 
@@ -74,6 +80,7 @@ case "$STEP" in
   compounds) node "$SCRIPT_DIR/build-compounds.mjs" ;;
   db)        node "$SCRIPT_DIR/assemble-sqlite.mjs" ;;
   zstd)      bash "$SCRIPT_DIR/zstd-db.sh" ;;
+  manifest)  node "$SCRIPT_DIR/manifest-db.mjs" ;;
   build-all) build_all ;;
   all)       fetch_all; build_all ;;
   *)         echo "Unknown step: $STEP"; usage ;;

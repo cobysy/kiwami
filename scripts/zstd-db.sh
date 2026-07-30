@@ -47,3 +47,8 @@ fi
 
 zstd -19 -f -o "$DEST" "$SRC"
 echo "Wrote public/$(basename "$DEST") ($(du -h "$DEST" | cut -f1 | tr -d ' '))"
+
+# Refresh the fingerprint browsers compare their cached copy against - a new
+# .zst with a stale manifest is invisible to every client that already has the
+# old database (see scripts/manifest-db.mjs), so this is not optional.
+node "$SCRIPT_DIR/manifest-db.mjs"

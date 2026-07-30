@@ -34,6 +34,40 @@ function ensureWebStore(sqlite) {
 // check this against that version's openStore()/Database constructor first.
 const JEEP_SQLITE_STORE_CONFIG = { name: 'jeepSqliteStore', storeName: 'databases', driver: [localforage.INDEXEDDB], version: 1 };
 
+// Where the fingerprint of the currently-imported database is recorded (keyed
+// by logical database name), so a deploy that ships new bytes can be detected
+// instead of ignored - see ensureDatabaseFromUrl.
+//
+// Its own IndexedDB database rather than another store inside
+// jeepSqliteStore: adding an object store to an existing IndexedDB database
+// means bumping its version, and that database's version is jeep-sqlite's to
+// own, not ours. Not localStorage either - not for the quota (a hash is 64
+// bytes) but because a fingerprint that outlives the database it describes is
+// worse than no fingerprint, and localStorage and IndexedDB are cleared
+// independently by browsers under storage pressure and by "clear site data"
+// UI. Same-store-as-the-data keeps "cached copy" and "what the cached copy
+// is" evictable as one unit.
+const FINGERPRINT_STORE_CONFIG = { name: 'kiwamiDictionaryMeta', storeName: 'fingerprints', driver: [localforage.INDEXEDDB], version: 1 };
+
+/**
+ * Reads the build's `dictionary.manifest.json` (scripts/manifest-db.mjs).
+ * `no-store` because an HTTP-cached manifest would report the old build's
+ * hash and defeat the entire check. Returns null on any failure - a missing
+ * or unparseable manifest means "can't tell", which must leave a working
+ * cached database alone rather than trigger a 40MB re-download (this is the
+ * offline case, among others).
+ */
+async function fetchManifest(manifestUrl) {
+  try {
+    const response = await fetch(manifestUrl, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const manifest = await response.json();
+    return typeof manifest?.sha256 === 'string' ? manifest : null;
+  } catch {
+    return null;
+  }
+}
+
 // Fetches and decompresses a zstd-compressed database ourselves, since
 // jeep-sqlite's built-in HTTP-import path only understands raw `.db` or
 // DEFLATE-zipped `.zip` (see ensureDatabaseFromUrl's jsdoc for the size win
@@ -108,10 +142,27 @@ export function createBrowserDriver(database, options = {}) {
  * `isDBExists()` — looks at the store directly instead of requiring a
  * connection to already be open.
  *
- * `force` deletes any existing IndexedDB copy first: without it, a schema
- * change (e.g. a new table) ships a fresh `dictionary.db.zst` that browsers
- * with an already-populated store silently never re-fetch, since `exists`
- * is already true.
+ * `force` deletes any existing IndexedDB copy first, for the reload button's
+ * "give me the shipped database no matter what" case.
+ *
+ * A drifted cache is detected without it, though, and re-imported the same
+ * way: `exists` alone can't tell a current copy from the one a browser
+ * imported two deploys ago, so when `manifestUrl` is given, the sha256 in
+ * that manifest (scripts/manifest-db.mjs) is compared against the fingerprint
+ * recorded at import time and a mismatch forces the re-import. Without this,
+ * a schema change (e.g. a new table) ships a fresh `dictionary.db.zst` that
+ * every already-populated browser silently never re-fetches, and keeps
+ * querying the old schema until someone hits reload by hand.
+ *
+ * An existing database with *no* recorded fingerprint counts as drifted: it
+ * was imported by a build from before this check existed, and "probably fine"
+ * isn't distinguishable from "two schemas stale" without re-importing once.
+ * That costs those browsers a single extra download, after which the
+ * fingerprint is known.
+ *
+ * Returns why it imported (or `null` if it didn't), which the caller uses to
+ * tell "Downloading" from "Updating" in the status line - a returning user who
+ * suddenly waits for a download deserves to know it's an update.
  *
  * jeep-sqlite's `deleteDatabase` looks up its internal `RW_<database>`
  * connection record to find the file handle to delete, rather than opening
@@ -121,13 +172,32 @@ export function createBrowserDriver(database, options = {}) {
  * exists otherwise). Create one just for the delete, then release it.
  * @param {string} database
  * @param {string} url
- * @param {{ force?: boolean }} [options]
+ * @param {{ force?: boolean, manifestUrl?: string, onImportStart?: (reason: 'missing' | 'drifted' | 'forced') => void }} [options]
+ * @returns {Promise<'missing' | 'drifted' | 'forced' | null>}
  */
 export async function ensureDatabaseFromUrl(database, url, options = {}) {
   const sqlite = new SQLiteConnection(CapacitorSQLite);
   await ensureWebStore(sqlite);
   const { result: exists } = await sqlite.isDatabase(database);
-  if (exists && options.force) {
+  const fingerprints = localforage.createInstance(FINGERPRINT_STORE_CONFIG);
+
+  // Only worth a network round-trip when there's a cached copy whose currency
+  // is in question: with nothing cached the database is about to be fetched
+  // regardless, and `force` has already decided to refetch.
+  const manifest = exists && !options.force && options.manifestUrl
+    ? await fetchManifest(options.manifestUrl)
+    : null;
+  const cachedFingerprint = exists ? await fingerprints.getItem(database) : null;
+  const drifted = manifest !== null && cachedFingerprint !== manifest.sha256;
+  if (drifted) {
+    console.info(`[dictionary] cached copy is stale (had ${cachedFingerprint ?? 'no fingerprint'}, build ships ${manifest.sha256.slice(0, 12)}…) — re-importing`);
+  }
+
+  const reason = !exists ? 'missing' : options.force ? 'forced' : drifted ? 'drifted' : null;
+  if (reason === null) return null;
+  options.onImportStart?.(reason);
+
+  if (exists) {
     const { result: hasRwConnection } = await sqlite.isConnection(database, false);
     const conn = hasRwConnection
       ? await sqlite.retrieveConnection(database, false)
@@ -135,11 +205,27 @@ export async function ensureDatabaseFromUrl(database, url, options = {}) {
     await conn.delete();
     if (!hasRwConnection) await sqlite.closeConnection(database, false);
   }
-  if (!exists || options.force) {
-    if (url.endsWith('.zst')) {
-      await importZstdDatabase(database, url);
-    } else {
-      await sqlite.getFromHTTPRequest(url, false);
-    }
+
+  // Cleared before the import, not just written after: a re-import that fails
+  // halfway (a dropped connection mid-download) must not leave the previous
+  // build's fingerprint sitting over whatever bytes survived, or the next load
+  // reads that as "current" and the stale-cache bug comes back permanently.
+  await fingerprints.removeItem(database);
+
+  // Read before the download, not after. Either order can straddle a deploy
+  // that lands mid-import, but only this one fails safe: reading first can
+  // record the older hash against newer bytes, which the next load sees as
+  // drift and corrects with one redundant re-import. Reading afterward records
+  // the newer hash against older bytes - indistinguishable from current, so
+  // that browser is stuck on a stale database until the deploy after next.
+  // (`manifest` above is null on the missing/forced paths, so it can't just be
+  // reused.)
+  const expected = manifest ?? (options.manifestUrl ? await fetchManifest(options.manifestUrl) : null);
+  if (url.endsWith('.zst')) {
+    await importZstdDatabase(database, url);
+  } else {
+    await sqlite.getFromHTTPRequest(url, false);
   }
+  if (expected) await fingerprints.setItem(database, expected.sha256);
+  return reason;
 }

@@ -63,6 +63,14 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   own HTTP-import path only understands raw `.db` or DEFLATE-zipped `.zip`, and DEFLATE's 32KB
   window can't reach redundancy spread across a 100MB+ file the way zstd's much larger window
   can (`scripts/zstd-db.sh`, `importZstdDatabase` in `browser-sqlite-driver.js`).
+  Also refreshes the fingerprint manifest below, so shipping a new database can't leave a stale
+  one advertised.
+- `npm run build:db -- manifest` — writes `public/dictionary.manifest.json`, the `sha256` of the
+  `.zst` that browsers compare their cached copy against. Runs as part of `-- zstd`; standalone
+  only to rebuild the manifest without a level-19 recompress. **Both files must be committed
+  together** — a `.zst` shipped with the previous manifest is invisible to every browser that
+  already imported the old database, since the runtime cache is keyed on presence alone
+  (`scripts/manifest-db.mjs`, `ensureDatabaseFromUrl` in `browser-sqlite-driver.js`).
 - `npm run setup:db` — the reverse: decompresses `data/build/dictionary.db` back out of the
   tracked `.zst`, for the node:sqlite-backed tooling that reads it directly. A manual escape
   hatch — in practice that tooling (`tests/node/dictionary.test.js`, `scripts/verify-db.mjs`)
@@ -76,6 +84,13 @@ produces. For the project overview, see [README.md](README.md); for the roadmap,
   WASM binary the glue can't instantiate. See `scripts/copy-sql-wasm.mjs`.
 - **The real 134MB `dictionary.db` loads fine in the browser driver** — fetch+import in well
   under a second locally, despite `sql.js` holding the whole database in WASM memory.
+- **Repeat visits never re-download, and the ~1.8s they still cost is not the download.**
+  Measured against the dev server at 430px: a cold visit reaches "Ready" in ~3.6s (40MB fetch +
+  `fzstd` decompress + IndexedDB write), a warm one in ~1.8s with no request for the `.zst` at
+  all. That remaining 1.8s is `sql.js` hydrating the whole database from IndexedDB into WASM
+  memory, which is inherent to holding it in memory — no caching layer touches it. The lever, if
+  it ever matters, is a page-level VFS (SQLite WASM over OPFS) rather than sql.js, and Phase 3
+  moves to native SQLite on device anyway, where none of this applies.
 - **kuromoji's browser dictionary loader needed two bundler-compat patches to run under
   Vite/Rolldown.** (1) It requires `zlibjs/bin/gunzip.min.js` for decompression; zlibjs's
   minified UMD wrapper reads top-level `this` to detect its host (real CJS bundlers call it with
