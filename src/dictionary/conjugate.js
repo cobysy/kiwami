@@ -50,6 +50,15 @@ function commonPrefixLength(a, b) {
 }
 
 /**
+ * Whether an entry's JMdict pos tags identify a conjugatable verb (per
+ * POS_ID above) - i.e. whether conjugate() would return forms for it.
+ * @param {string[]} pos - JMdict pos tags for the entry
+ */
+export function isConjugatableVerb(pos) {
+  return pos.some((p) => POS_ID[p] !== undefined);
+}
+
+/**
  * @param {string|null} kanji - the entry's kanji headword, if any
  * @param {string} reading - the entry's kana reading (dictionary form)
  * @param {string[]} pos - JMdict pos tags for the entry

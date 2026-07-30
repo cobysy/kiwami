@@ -12,7 +12,7 @@
 // system.
 import { ref, computed, onMounted } from 'vue';
 import { createBrowserDriver, ensureDatabaseFromUrl } from './dictionary/sqlite-drivers/browser-sqlite-driver.js';
-import { search, fuzzySearch, deconjugate, fetchSentencesForEntry, fetchKanjiDetails, conjugate } from './dictionary/index.js';
+import { search, fuzzySearch, deconjugate, fetchSentencesForEntry, fetchKanjiDetails, conjugate, isConjugatableVerb } from './dictionary/index.js';
 import { DIALECT_OPTIONS, dialectColor } from './dictionary/dialect-labels.js';
 import { priorityLabel, priorityColor } from './dictionary/frequency-labels.js';
 import { posLabel, posShortLabel, posColor } from './dictionary/pos-labels.js';
@@ -26,8 +26,13 @@ function priorityTitle(tags) {
   return tags.map((tag) => `${tag}: ${priorityLabel(tag)}`).join('\n');
 }
 
+// Dictionary DB load lifecycle: 'idle' | 'loading' | 'ready' | 'error'. Drives
+// statusLabel, the status dot, and disables search/reload while not ready.
 const status = ref('idle');
+// Human-readable failure detail shown under the status row when status is 'error'.
 const errorMessage = ref('');
+// Template ref bound to the search <input> - used to autofocus it once the
+// dictionary finishes loading (see onMounted).
 const searchInput = ref(null);
 
 const statusLabel = computed(() => ({
@@ -45,28 +50,31 @@ const MATCH_MODES = [
 ];
 const KANJI_COUNTS = [1, 2, 3, 4];
 
-// JMdict pos tags that identify a conjugatable verb entry - see conjugate.js
-// for why bare 'vs' (a noun that merely *can* take する) is excluded.
-const VERB_POS = new Set([
-  'v1', 'v5u', 'v5k', 'v5g', 'v5s', 'v5t', 'v5n', 'v5b', 'v5m', 'v5r', 'v5k-s',
-  'vs-i', 'vs-s', 'vk',
-]);
-function isVerb(r) {
-  return r.pos.some((p) => VERB_POS.has(p));
-}
-
+// Raw text in the search box (v-model'd to the input).
 const query = ref('');
-const matchMode = ref('auto'); // 'auto' | 'startsWith' | 'endsWith' | 'contains'
-const kanjiCount = ref(null); // 1 | 2 | 3 | 4 | null
-const dialect = ref(null); // JMdict dial tag (e.g. 'ksb') | null
+// 'auto' | 'startsWith' | 'endsWith' | 'contains'
+const matchMode = ref('auto');
+// 1 | 2 | 3 | 4 | null
+const kanjiCount = ref(null);
+// JMdict dial tag (e.g. 'ksb') | null
+const dialect = ref(null);
+// User toggle for revealing the archaic/obsolete/rare results block (see archaicView above).
 const showArchaic = ref(false);
+// Match tier the engine reports for the last search (e.g. 'exact', 'partial') | null before any search.
 const tier = ref(null);
+// How the engine actually interpreted the raw query (e.g. after wildcard/kana normalization) | null.
 const interpretedQuery = ref(null);
+// Main search results from the last runSearch() call.
 const results = ref([]);
+// Fuzzy-search results from the last runFuzzy() call, shown in the fuzzy-matches view.
 const fuzzyResults = ref([]);
+// Mirrors interpretedQuery but for the fuzzy search path.
 const fuzzyInterpretedQuery = ref(null);
+// Whether the fuzzy-results view is currently shown instead of the main results.
 const showFuzzy = ref(false);
+// Deconjugation candidates for the current query (e.g. した -> 為る) from deconjugate().
 const deconjugated = ref([]);
+// Whether a search has actually been run yet - distinguishes "no results" from "haven't searched" for empty-state messaging.
 const hasSearched = ref(false);
 
 // The engine returns archaic/obsolete/rare/obscure entries flagged, not
@@ -109,9 +117,13 @@ const selectedDialectLabel = computed(
 // sentences are fetched lazily on first expand, then cached by entry id for
 // the rest of the session so re-toggling the same card doesn't re-query the
 // DB. Conjugation is pure string logic (conjugate.js) - no fetch needed.
+// Set of result entry ids currently expanded (detail panel visible).
 const expandedIds = ref(new Set());
-const sentenceCache = ref({}); // entryId -> { status: 'loading'|'ready'|'error', sentences: [] }
-const kanjiCache = ref({}); // entryId -> { status: 'loading'|'ready'|'error', kanji: [] }
+// entryId -> { status: 'loading'|'ready'|'error', sentences: [] }
+const sentenceCache = ref({});
+// entryId -> { status: 'loading'|'ready'|'error', kanji: [] }
+const kanjiCache = ref({});
+// Set of entry ids whose conjugation panel is currently open (subset of expandedIds).
 const conjugationOpenIds = ref(new Set());
 
 function sentencesFor(entryId) {
@@ -504,7 +516,7 @@ onMounted(async () => {
                 </ul>
               </div>
 
-              <div v-if="isVerb(r)" class="conjugate-section">
+              <div v-if="isConjugatableVerb(r.pos)" class="conjugate-section">
                 <button type="button" class="conjugate-btn" @click="toggleConjugation(r.id)">
                   {{ conjugationOpenIds.has(r.id) ? 'Hide conjugation' : 'Conjugate ▾' }}
                 </button>
@@ -569,7 +581,7 @@ onMounted(async () => {
                   </ul>
                 </div>
 
-                <div v-if="isVerb(r)" class="conjugate-section">
+                <div v-if="isConjugatableVerb(r.pos)" class="conjugate-section">
                   <button type="button" class="conjugate-btn" @click="toggleConjugation(r.id)">
                     {{ conjugationOpenIds.has(r.id) ? 'Hide conjugation' : 'Conjugate ▾' }}
                   </button>
@@ -640,7 +652,7 @@ onMounted(async () => {
                 </ul>
               </div>
 
-              <div v-if="isVerb(r)" class="conjugate-section">
+              <div v-if="isConjugatableVerb(r.pos)" class="conjugate-section">
                 <button type="button" class="conjugate-btn" @click="toggleConjugation(r.id)">
                   {{ conjugationOpenIds.has(r.id) ? 'Hide conjugation' : 'Conjugate ▾' }}
                 </button>
@@ -705,7 +717,7 @@ onMounted(async () => {
                   </ul>
                 </div>
 
-                <div v-if="isVerb(r)" class="conjugate-section">
+                <div v-if="isConjugatableVerb(r.pos)" class="conjugate-section">
                   <button type="button" class="conjugate-btn" @click="toggleConjugation(r.id)">
                     {{ conjugationOpenIds.has(r.id) ? 'Hide conjugation' : 'Conjugate ▾' }}
                   </button>
