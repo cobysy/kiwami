@@ -93,6 +93,44 @@ function readNdjson(file) {
   });
 }
 
+// Compact delimiter-based encoding for the free-text string-array/structured
+// columns below (kanji onyomi/kunyomi/meanings, entry_readings.restrict_to,
+// entry_senses.xref/lsource, sentences.furigana) - these are per-row, not
+// interned via tag_lists (see the comment above SCHEMA for why), so
+// JSON.stringify's quotes/brackets/key-names/`true`/`false` literals cost
+// real bytes on every one of these tables' 60k-260k rows for no benefit
+// over a plain delimiter. U+001F/U+001E are ASCII's own "unit separator"/
+// "record separator" control codes - not valid in any JMdict or Tatoeba
+// text, so they're safe as delimiters with no escaping. Mirrored on the
+// read side by src/dictionary/list-encoding.js's decode* functions.
+const LIST_SEP = '\x1f';
+const FIELD_SEP = '\x1e';
+
+function encodeList(values) {
+  return values.join(LIST_SEP);
+}
+
+// furigana tokens ({surface, reading}[], reading null for kana-only tokens -
+// see scripts/build-furigana.mjs): surface alone when there's no reading,
+// otherwise surface+FIELD_SEP+reading, so the (majority) no-reading case
+// costs zero separator bytes instead of a `"reading":null` key/value pair.
+function encodeFurigana(tokens) {
+  return tokens.map((t) => (t.reading == null ? t.surface : `${t.surface}${FIELD_SEP}${t.reading}`)).join(LIST_SEP);
+}
+
+// lsource items ({lang, text, partial, wasei}[] - see build-entries.mjs's
+// lsourceOf): lang/text/flags per item, joined by FIELD_SEP; flags is a
+// string with 'p'/'w' appended only when true; partial and wasei are true
+// on only a small fraction of lsource rows, so encoding them as characters
+// that are simply absent when false (vs. a literal "false" string) is most
+// of this format's saving over JSON.
+function encodeLsource(items) {
+  return items.map((ls) => {
+    const flags = `${ls.partial ? 'p' : ''}${ls.wasei ? 'w' : ''}`;
+    return `${ls.lang}${FIELD_SEP}${ls.text}${FIELD_SEP}${flags}`;
+  }).join(LIST_SEP);
+}
+
 const SCHEMA = `
 CREATE TABLE entries (
   id INTEGER PRIMARY KEY,
@@ -107,11 +145,13 @@ CREATE TABLE entries (
 -- hundred distinct values, e.g. "[]" or ["news1","ichi1"] - storing one copy
 -- here and referencing it by id instead of repeating the JSON text on every
 -- row cuts a large fraction of those tables' size. re_restr/xref are NOT
--- interned here despite the same JSON-array shape: measured against the
--- built db, re_restr is ~96% unique values (4570/4782 non-null rows) and
--- xref ~12% unique (29203/252681 rows) - each is closer to free text
--- referencing specific other headwords than a small reusable tag set, so
--- interning them would add a join+id column for essentially no dedup.
+-- interned here despite the same array shape: measured against the built
+-- db, re_restr is ~96% unique values (4570/4782 non-null rows) and xref
+-- ~12% unique (29203/252681 rows) - each is closer to free text referencing
+-- specific other headwords than a small reusable tag set, so interning them
+-- would add a join+id column for essentially no dedup. They're still
+-- encoded with encodeList() below rather than JSON.stringify, same as
+-- kanji's onyomi/kunyomi/meanings - see the comment on encodeList above.
 CREATE TABLE tag_lists (
   id INTEGER PRIMARY KEY,
   json TEXT UNIQUE NOT NULL
@@ -132,6 +172,9 @@ CREATE TABLE entry_readings (
   ord INTEGER NOT NULL,
   text TEXT NOT NULL,
   no_kanji INTEGER NOT NULL,
+  -- Which kanji forms this reading applies to (re_restr), NULL when
+  -- unrestricted (applies to all). encodeList()-joined, not JSON - see
+  -- comment above.
   restrict_to TEXT,
   info_id INTEGER NOT NULL REFERENCES tag_lists(id),
   priority_id INTEGER NOT NULL REFERENCES tag_lists(id)
@@ -147,16 +190,19 @@ CREATE TABLE entry_senses (
   field_id INTEGER NOT NULL REFERENCES tag_lists(id),
   misc_id INTEGER NOT NULL REFERENCES tag_lists(id),
   dial_id INTEGER NOT NULL REFERENCES tag_lists(id),
+  -- Cross-references to other headwords (see/antonym-adjacent xref
+  -- elements). encodeList()-joined, not JSON - see comment above.
   xref TEXT NOT NULL,
   antonym_id INTEGER NOT NULL REFERENCES tag_lists(id),
   info TEXT,
   restrict_to_kanji_id INTEGER REFERENCES tag_lists(id),
   restrict_to_reading_id INTEGER REFERENCES tag_lists(id),
-  -- Loanword source-language info (JSON array of {lang, text, partial,
-  -- wasei}), e.g. [{"lang":"kor","text":"annyeong",...}] for アンニョン. Not
-  -- interned via tag_lists: like xref/re_restr (see comment above), each
-  -- value is closer to free text tied to a specific loanword than a small
-  -- reusable tag set.
+  -- Loanword source-language info ({lang, text, partial, wasei}[]), e.g.
+  -- "kor\x1eannyeong\x1e" for アンニョン - encodeLsource()-joined, not JSON:
+  -- like xref/re_restr (see comment above), each value is closer to free
+  -- text tied to a specific loanword than a small reusable tag set, and
+  -- partial/wasei are false on nearly every row, so a JSON boolean's
+  -- quotes plus a "false" literal would cost more than the flag is worth.
   lsource TEXT
 );
 CREATE INDEX idx_entry_senses_entry ON entry_senses(entry_id);
@@ -176,6 +222,9 @@ CREATE INDEX idx_entry_glosses_text ON entry_glosses(text);
 CREATE INDEX idx_entry_glosses_sense ON entry_glosses(sense_id);
 CREATE INDEX idx_entry_glosses_entry ON entry_glosses(entry_id);
 
+-- onyomi/kunyomi/meanings are each a string list, encodeList()-joined (not
+-- JSON - see comment on encodeList above); one row per character, so
+-- there's no shared-value interning win the way tag_lists gets one.
 CREATE TABLE kanji (
   literal TEXT PRIMARY KEY,
   onyomi TEXT NOT NULL,
@@ -195,6 +244,12 @@ CREATE TABLE kanji_compounds (
 );
 CREATE INDEX idx_kanji_compounds_kanji ON kanji_compounds(kanji);
 
+-- furigana is {surface, reading}[] tokens, encodeFurigana()-joined (not
+-- JSON - see comment above): the majority of tokens have no reading (plain
+-- kana), and this table's ~62k rows/~500k tokens made JSON's per-token
+-- {"surface":...,"reading":null} shape (repeated keys plus a "null"
+-- literal on every kana-only token) the single largest source of JSON
+-- bloat in the whole database before this format replaced it.
 CREATE TABLE sentences (
   id INTEGER PRIMARY KEY,
   japanese TEXT NOT NULL,
@@ -237,9 +292,9 @@ async function main() {
       const k = JSON.parse(line);
       batch.push({
         literal: k.literal,
-        onyomi: JSON.stringify(k.onyomi),
-        kunyomi: JSON.stringify(k.kunyomi),
-        meanings: JSON.stringify(k.meanings),
+        onyomi: encodeList(k.onyomi),
+        kunyomi: encodeList(k.kunyomi),
+        meanings: encodeList(k.meanings),
         strokeCount: k.strokeCount,
         grade: k.grade,
         jlpt: k.jlpt,
@@ -267,16 +322,16 @@ async function main() {
       e.kanji.forEach((k, i) => insertKanji.run(e.id, i, k.text, intern(k.info), intern(k.priority)));
       e.readings.forEach((r, i) => insertReading.run(
         e.id, i, r.text, r.noKanji ? 1 : 0,
-        r.restrictTo ? JSON.stringify(r.restrictTo) : null,
+        r.restrictTo ? encodeList(r.restrictTo) : null,
         intern(r.info), intern(r.priority),
       ));
       e.senses.forEach((s, i) => {
         const senseId = insertSense.run(
           e.id, i, intern(s.pos), intern(s.field), intern(s.misc), intern(s.dial),
-          JSON.stringify(s.xref), intern(s.antonym), s.info,
+          encodeList(s.xref), intern(s.antonym), s.info,
           intern(s.restrictToKanji),
           intern(s.restrictToReading),
-          s.lsource.length > 0 ? JSON.stringify(s.lsource) : null,
+          s.lsource.length > 0 ? encodeLsource(s.lsource) : null,
         ).lastInsertRowid;
         s.glosses.forEach((g, gi) => insertGloss.run(senseId, e.id, gi, g));
       });
@@ -328,7 +383,7 @@ async function main() {
         japaneseAuthor: s.japaneseAuthor,
         english: s.english,
         englishAuthor: s.englishAuthor,
-        furigana: JSON.stringify(furigana.get(s.id) || []),
+        furigana: encodeFurigana(furigana.get(s.id) || []),
       });
     }
     insertMany(batch);

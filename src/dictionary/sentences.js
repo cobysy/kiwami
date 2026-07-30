@@ -4,9 +4,11 @@
 // scripts/build-sentences.mjs's MAX_SENTENCES_PER_ENTRY per entry at build
 // time, shortest-first).
 //
-// furigana is stored as a JSON string ({ surface, reading }[], reading null
-// for tokens with no kanji - see scripts/build-furigana.mjs) - parsed here
-// so callers get it ready to render as ruby.
+// furigana is stored as a delimited string ({ surface, reading }[], reading
+// null for tokens with no kanji - see scripts/build-furigana.mjs and
+// scripts/assemble-sqlite.mjs's encodeFurigana), decoded here so callers get
+// it ready to render as ruby.
+import { decodeFurigana } from './list-encoding.js';
 
 /**
  * @param {import('./sqlite-driver.js').DBDriver} driver
@@ -26,6 +28,6 @@ export async function fetchSentencesForEntry(driver, entryId) {
     japaneseAuthor: row.japanese_author,
     english: row.english,
     englishAuthor: row.english_author,
-    furigana: JSON.parse(row.furigana),
+    furigana: decodeFurigana(row.furigana),
   }));
 }

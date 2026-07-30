@@ -1,8 +1,9 @@
 // Per-character kanji breakdown (stroke count + on'yomi/kun'yomi) for a
 // result card's kanji headword, pulled from the `kanji` table built by
-// scripts/build-kanji.mjs. onyomi/kunyomi are stored as JSON-stringified
-// arrays (see scripts/assemble-sqlite.mjs), parsed here for the caller.
+// scripts/build-kanji.mjs. onyomi/kunyomi are stored as delimited strings
+// (see scripts/assemble-sqlite.mjs's encodeList), decoded here for the caller.
 import { hasKanji } from './kanji.js';
+import { decodeList } from './list-encoding.js';
 
 /**
  * @param {import('./sqlite-driver.js').DBDriver} driver
@@ -27,8 +28,8 @@ export async function fetchKanjiDetails(driver, headword) {
       const row = byLiteral.get(l);
       return {
         literal: l,
-        onyomi: JSON.parse(row.onyomi),
-        kunyomi: JSON.parse(row.kunyomi),
+        onyomi: decodeList(row.onyomi),
+        kunyomi: decodeList(row.kunyomi),
         strokeCount: row.stroke_count,
       };
     });

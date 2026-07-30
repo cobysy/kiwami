@@ -23,6 +23,7 @@
 import { statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { ensureDictionaryDb } from './unzip-db.mjs';
+import { decodeFurigana } from '../src/dictionary/list-encoding.js';
 
 const KNOWN_TABLES = [
   'entries', 'entry_kanji', 'entry_readings', 'entry_senses', 'entry_glosses',
@@ -104,7 +105,7 @@ const sentenceRow = db.prepare(`
 `).get();
 check('entry 1000220 has at least one linked sentence', !!sentenceRow);
 if (sentenceRow) {
-  const furigana = JSON.parse(sentenceRow.furigana);
+  const furigana = decodeFurigana(sentenceRow.furigana);
   check('sentence japanese text contains 明白', sentenceRow.japanese.includes('明白'));
   check('furigana tokens parse as an array', Array.isArray(furigana) && furigana.length > 0);
   check('furigana includes a 明白 → めいはく token', furigana.some((t) => t.surface === '明白' && t.reading === 'めいはく'));
@@ -210,7 +211,7 @@ const sentenceExample = runExample(
    LIMIT 1`,
 );
 if (sentenceExample[0]) {
-  console.log('furigana tokens:', JSON.parse(sentenceExample[0].furigana));
+  console.log('furigana tokens:', decodeFurigana(sentenceExample[0].furigana));
 }
 
 db.close();

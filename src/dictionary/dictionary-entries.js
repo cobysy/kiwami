@@ -4,6 +4,7 @@
 // sorted the way PLAN.md's Phase 1 tiered-match spec describes —
 // common-first within a tier, archaic pushed down rather than filtered out.
 import { dialectLabel } from './dialect-labels.js';
+import { decodeLsource } from './list-encoding.js';
 
 // Pulls every misc tag present on an entry's senses (arch/rare/obsolete, but
 // also things like "uk" (usually kana) or "hon" (honorific)) - see
@@ -79,7 +80,7 @@ export async function fetchEntriesByIds(driver, entryIds, options = {}) {
     // Loanword source-language info (e.g. {lang:'kor', text:'annyeong', ...}
     // for アンニョン), flattened across senses in sense order - see
     // lsource-labels.js for lang -> display name.
-    row.lsources = senses.flatMap((s) => (s.lsource ? JSON.parse(s.lsource) : []));
+    row.lsources = senses.flatMap((s) => decodeLsource(s.lsource));
     row.archaic = row.is_archaic === 1;
     row.labels = row.labels ? row.labels.split(',') : [];
     row.dialect = row.dialect ? row.dialect.split(',').map(dialectLabel) : [];

@@ -18,6 +18,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { assertDriver } from '../../src/dictionary/sqlite-driver.js';
 import { search, fuzzySearch, deconjugate } from '../../src/dictionary/index.js';
+import { decodeFurigana } from '../../src/dictionary/list-encoding.js';
 
 /**
  * @param {string} label - shown in the describe block name (e.g. "node", "browser")
@@ -291,7 +292,7 @@ export function runDictionarySuite(label, createDriver) {
           [1358280, 1036819],
         );
         expect(sentence.japanese).toContain('食べ');
-        const furigana = JSON.parse(sentence.furigana);
+        const furigana = decodeFurigana(sentence.furigana);
         expect(furigana.some((t) => t.surface === '食べ' && t.reading === 'たべ')).toBe(true);
       });
     });
