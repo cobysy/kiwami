@@ -791,12 +791,22 @@ onMounted(async () => {
   --radius-md: 12px;
   --radius-lg: 18px;
   --font-jp: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Noto Sans JP', sans-serif;
+  /* Hiragino Sans ships W0-W9 as one family, so a CSS weight picks the face:
+     400 and 300 both land on ~W3/W4, which is the "fat" look at these small
+     sizes; 200 selects W2 and is the first step that visibly thins the kana
+     and kanji strokes. Set wherever --font-jp is used. (Noto Sans JP and Yu
+     Gothic resolve 200 to their ExtraLight/Light faces.) */
+  --font-jp-weight: 200;
 }
 
 html, body {
   background: var(--bg);
   margin: 0;
   height: 100%;
+  /* Light-on-dark text renders noticeably fatter under WebKit's default
+     subpixel antialiasing; grayscale AA keeps the stems at their real width. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #app {
@@ -813,6 +823,10 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, var(--font-jp), sans-serif;
+  /* SF Light rather than Regular: at this UI's small sizes, Regular on the
+     near-black background reads heavier than it measures. Explicit weights
+     (500/600) on emphasis still stand out against it. */
+  font-weight: 300;
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
@@ -866,7 +880,7 @@ html, body {
 .brand-text h1 {
   margin: 0;
   font-size: var(--brand-title-size);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.01em;
 }
 
@@ -1245,7 +1259,7 @@ html, body {
 }
 
 .deconj-surface {
-  font-weight: 400;
+  font-weight: var(--font-jp-weight);
   font-family: var(--font-jp);
 }
 
@@ -1260,7 +1274,7 @@ html, body {
 }
 
 .deconj-headword {
-  font-weight: 400;
+  font-weight: var(--font-jp-weight);
   font-family: var(--font-jp);
 }
 
@@ -1281,7 +1295,7 @@ html, body {
 .tier-pill {
   text-transform: uppercase;
   font-size: 0.68rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.04em;
   padding: 0.2rem 0.5rem;
   border-radius: 999px;
@@ -1378,12 +1392,13 @@ html, body {
 .result-headword {
   font-family: var(--font-jp);
   font-size: 0.98rem;
-  font-weight: 400;
+  font-weight: var(--font-jp-weight);
   white-space: nowrap;
 }
 
 .result-reading {
   font-family: var(--font-jp);
+  font-weight: var(--font-jp-weight);
   font-size: 0.8rem;
   color: var(--text-muted);
   white-space: nowrap;
@@ -1453,7 +1468,7 @@ html, body {
 .detail-label {
   margin: 0 0 0.5rem;
   font-size: 0.65rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -1505,6 +1520,7 @@ html, body {
 
 .kanji-literal {
   font-family: var(--font-jp);
+  font-weight: var(--font-jp-weight);
   font-size: 1.1rem;
   color: var(--text);
 }
@@ -1520,7 +1536,7 @@ html, body {
 
 .kanji-yomi-tag {
   font-size: 0.65rem;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-faint);
   margin-right: 0.3rem;
 }
@@ -1570,6 +1586,7 @@ html, body {
 
 .conj-form {
   font-family: var(--font-jp);
+  font-weight: var(--font-jp-weight);
 }
 
 .conj-stem {
@@ -1578,7 +1595,9 @@ html, body {
 
 .conj-ending {
   color: var(--accent-strong);
-  font-weight: 700;
+  /* JP text, so 700 would pick Hiragino W7 - far too heavy for 0.8rem kana.
+     The accent colour already carries the emphasis. */
+  font-weight: 500;
 }
 
 .sentence-list {
@@ -1599,6 +1618,8 @@ html, body {
   margin: 0;
   font-family: var(--font-jp);
   font-size: 0.85rem;
+  /* One step above --font-jp-weight: this text is muted *and* carries 0.62em
+     furigana, which disappears at W2. */
   font-weight: 300;
   color: var(--text-muted);
   line-height: 2.1;
